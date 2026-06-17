@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@theme {
+  --color-nordic-white: #F8F8FF;
+  --color-nordic-black: #2A3439;
+  --color-nordic-blue: #3AA8C1;
+  --color-nordic-ghost: #F8F8FF;
+  --color-border: #E2E8F0;
+  
+  --font-heading: "Inter", system-ui, sans-serif;
+  --font-body: "DM Sans", system-ui, sans-serif;
+  
+  --radius-xl: 12px;
+  --radius-2xl: 24px;
+}
+
+@layer base {
+  @font-face {
+    font-family: 'Inter';
+    src: url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  }
+  @font-face {
+    font-family: 'DM Sans';
+    src: url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap');
+  }
+
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-nordic-white text-nordic-black font-body antialiased;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading font-bold;
+  }
+}
+
+@layer utilities {
+  .glassmorphism {
+    @apply border border-black/[0.08] bg-white/55 backdrop-blur-[12px] shadow-[0_4px_20px_rgba(0,0,0,0.06)];
+  }
+  
+  .neomorph-raised {
+    @apply bg-[#F8F8FF] shadow-[6px_6px_14px_rgba(0,0,0,0.07),-6px_-6px_14px_rgba(255,255,255,0.85)];
+  }
+}
