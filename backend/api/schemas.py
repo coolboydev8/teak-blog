@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 
 from ninja import Field, Schema
 
@@ -37,6 +37,8 @@ class AuthorOut(Schema):
     id: int
     username: str
     avatar: str = ""
+    title: str = ""
+    domain: str = ""
 
 
 class UserOut(Schema):
@@ -46,11 +48,43 @@ class UserOut(Schema):
     bio: str = ""
     avatar: str = ""
     website: str = ""
+    title: str = ""
+    domain: str = ""
+    date_joined: datetime
+
+
+class ProfileUpdateIn(Schema):
+    bio: Optional[str] = None
+    avatar: Optional[str] = None
+    website: Optional[str] = None
+    title: Optional[str] = None
+    domain: Optional[str] = None
 
 
 class RegisterOut(Schema):
     user: UserOut
     tokens: TokenPairOut
+
+
+class LoginOut(Schema):
+    user: UserOut
+    access: str
+    refresh: str
+
+
+class PasswordResetRequestIn(Schema):
+    email: str
+
+
+class PasswordResetRequestOut(Schema):
+    detail: str
+    reset_url: Optional[str] = None  # populated only in DEBUG, for dev convenience
+
+
+class PasswordResetConfirmIn(Schema):
+    uid: str
+    token: str
+    new_password: str
 
 
 # --- Taxonomy -----------------------------------------------------------
@@ -67,12 +101,17 @@ class TagOut(Schema):
 
 
 # --- Posts --------------------------------------------------------------
+# Tags may be given as ids (int) or names/slugs (str, get-or-created).
+TagInput = list[Union[int, str]]
+
+
 class PostCreateIn(Schema):
     title: str = Field(..., min_length=1, max_length=200)
     content: str = Field(..., min_length=1)
     excerpt: Optional[str] = None
+    slug: Optional[str] = None
     category_id: Optional[int] = None
-    tags: Optional[list[int]] = None
+    tags: Optional[TagInput] = None
     metadata: Optional[dict] = None
 
 
@@ -80,8 +119,9 @@ class PostUpdateIn(Schema):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     content: Optional[str] = Field(None, min_length=1)
     excerpt: Optional[str] = None
+    slug: Optional[str] = None
     category_id: Optional[int] = None
-    tags: Optional[list[int]] = None
+    tags: Optional[TagInput] = None
     metadata: Optional[dict] = None
 
 
@@ -95,6 +135,7 @@ class PostListItemOut(Schema):
     created_at: datetime
     updated_at: datetime
     view_count: int
+    comment_count: int = 0  # annotated by PostQuerySet.with_related()
     read_time_minutes: int  # sourced from Post.read_time_minutes property
     author: AuthorOut
     category: Optional[CategoryOut]
@@ -124,19 +165,76 @@ class CommentOut(Schema):
     author: AuthorOut
 
 
+class PostRefOut(Schema):
+    slug: str
+    title: str
+
+
+class CommentModerationOut(Schema):
+    """Comment enriched with its parent post, for the author moderation queue."""
+
+    id: int
+    body: str
+    moderation_status: str
+    moderation_reason: str = ""
+    created_at: datetime
+    author: AuthorOut
+    post: PostRefOut
+
+
 # --- Subscriptions ------------------------------------------------------
 class SubscriptionCreateIn(Schema):
     author_id: int
     notification_method: str = "email"
+    frequency: str = "realtime"
     webhook_url: Optional[str] = None
     webhook_secret: Optional[str] = None
+
+
+class SubscriptionUpdateIn(Schema):
+    frequency: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class SubscriptionOut(Schema):
     id: int
     notification_method: str
+    frequency: str
+    is_active: bool
     created_at: datetime
     author: AuthorOut
+
+
+# --- Webhooks ("Callback Workflows") ------------------------------------
+class WebhookCreateIn(Schema):
+    event: str
+    url: str
+    secret: str = ""
+    is_active: bool = True
+
+
+class WebhookUpdateIn(Schema):
+    event: Optional[str] = None
+    url: Optional[str] = None
+    secret: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class WebhookOut(Schema):
+    id: int
+    event: str
+    url: str
+    is_active: bool
+    health: str
+    last_status: Optional[int]
+    last_triggered_at: Optional[datetime]
+    created_at: datetime
+    # secret is intentionally write-only; we expose only a masked hint.
+    secret_set: bool
+
+    @staticmethod
+    def resolve_secret_set(obj) -> bool:
+        return bool(obj.secret)
 
 
 # --- Misc ---------------------------------------------------------------
@@ -163,3 +261,51 @@ class PagedComments(Schema):
     next: Optional[str]
     previous: Optional[str]
     results: list[CommentOut]
+
+
+class PagedModerationComments(Schema):
+    count: int
+    next: Optional[str]
+    previous: Optional[str]
+    results: list[CommentModerationOut]
+
+
+# --- Analytics ----------------------------------------------------------
+class ReachBucket(Schema):
+    label: str
+    pct: int
+
+
+class ActivityOut(Schema):
+    id: int
+    type: str
+    title: str
+    body: str = ""
+    metadata: dict
+    is_read: bool
+    created_at: datetime
+
+
+class PagedActivity(Schema):
+    count: int
+    next: Optional[str]
+    previous: Optional[str]
+    results: list[ActivityOut]
+
+
+class UnreadOut(Schema):
+    unread: int
+
+
+class AnalyticsOut(Schema):
+    total_views: int
+    total_posts: int
+    published_posts: int
+    draft_posts: int
+    subscriber_count: int
+    total_comments: int
+    pending_comments: int
+    views_delta_pct: float
+    subscribers_delta_pct: float
+    trust_score: float
+    audience_reach: list[ReachBucket]

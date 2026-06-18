@@ -117,11 +117,28 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_DEFAULT_QUEUE = "default"
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
-# --- Email (console in dev; swap backend via env for real delivery) -----
+# --- Email --------------------------------------------------------------
+# Set EMAIL_HOST (+ user/password) to deliver real mail via SMTP; otherwise
+# mail is printed to the console (dev). EMAIL_BACKEND can override explicitly.
+EMAIL_HOST = env("EMAIL_HOST", default="")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=False)
+
 EMAIL_BACKEND = env(
-    "EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend"
+    "EMAIL_BACKEND",
+    default=(
+        "django.core.mail.backends.smtp.EmailBackend"
+        if EMAIL_HOST
+        else "django.core.mail.backends.console.EmailBackend"
+    ),
 )
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@teak-blog.local")
+
+# Base URL of the SPA, used to build password-reset links in emails.
+FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:5173")
 
 # --- i18n / static ------------------------------------------------------
 LANGUAGE_CODE = "en-us"

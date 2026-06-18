@@ -51,8 +51,22 @@ class PostQuerySet(models.QuerySet):
         return self.filter(status=Post.Status.PUBLISHED)
 
     def with_related(self):
-        """Eager-load everything the API serializers touch (avoids N+1)."""
-        return self.select_related("author", "category").prefetch_related("tags")
+        """Eager-load everything the API serializers touch (avoids N+1).
+
+        ``comment_count`` is a single grouped aggregate over the
+        (post, moderation_status) index — one query, no per-row lookups.
+        """
+        return (
+            self.select_related("author", "category")
+            .prefetch_related("tags")
+            .annotate(
+                comment_count=models.Count(
+                    "comments",
+                    filter=models.Q(comments__moderation_status="approved"),
+                    distinct=True,
+                )
+            )
+        )
 
 
 class Post(TimeStampedModel):
@@ -160,6 +174,12 @@ class Subscription(models.Model):
         EMAIL = "email", "Email"
         WEBHOOK = "webhook", "Webhook"
 
+    class Frequency(models.TextChoices):
+        REALTIME = "realtime", "Real-time"
+        DAILY = "daily", "Daily"
+        WEEKLY = "weekly", "Weekly"
+        MONTHLY = "monthly", "Monthly"
+
     subscriber = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -177,6 +197,13 @@ class Subscription(models.Model):
         choices=Method.choices,
         default=Method.EMAIL,
     )
+    frequency = models.CharField(
+        max_length=20,
+        choices=Frequency.choices,
+        default=Frequency.REALTIME,
+    )
+    # Paused subscriptions stay in the list but receive no notifications.
+    is_active = models.BooleanField(default=True)
     webhook_url = models.URLField(blank=True, null=True)
     webhook_secret = models.CharField(max_length=256, blank=True, null=True)
 
@@ -256,3 +283,94 @@ class IdempotencyKey(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id}:{self.key}"
+
+
+class PostView(models.Model):
+    """One row per detail view (written async), enabling real view trends.
+
+    The denormalized ``Post.view_count`` stays the hot-path counter; this log
+    is the time-series behind dashboard deltas and milestones.
+    """
+
+    post = models.ForeignKey(
+        Post, on_delete=models.CASCADE, related_name="views"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["post", "created_at"])]
+
+
+class ActivityEvent(models.Model):
+    """An item in an author's activity timeline / notification feed."""
+
+    class Type(models.TextChoices):
+        PUBLISH = "publish", "Publish event"
+        COMMENT = "comment", "New comment"
+        COMMENT_APPROVED = "comment_approved", "Comment approved"
+        MILESTONE = "milestone", "Milestone"
+        SUBSCRIBER = "subscriber", "New subscriber"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="activity",
+    )
+    type = models.CharField(max_length=20, choices=Type.choices)
+    title = models.CharField(max_length=200)
+    body = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "-created_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.type} for {self.user_id}"
+
+
+class Webhook(models.Model):
+    """A user-configured event callback ("Callback Workflow").
+
+    Teak analogy: partner webhook registration — an owner registers a URL for an
+    event type, payloads are HMAC-signed with ``secret`` and delivered with
+    retry; ``health`` reflects the last delivery outcome.
+    """
+
+    class Event(models.TextChoices):
+        POST_PUBLISHED = "post.published", "Post published"
+        COMMENT_CREATED = "comment.created", "Comment created"
+        USER_SUBSCRIBED = "user.subscribed", "User subscribed"
+
+    class Health(models.TextChoices):
+        AWAITING = "awaiting", "Awaiting first delivery"
+        FUNCTIONAL = "functional", "Functional"
+        FAILING = "failing", "Failing"
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="webhooks",
+    )
+    event = models.CharField(max_length=40, choices=Event.choices)
+    url = models.URLField()
+    secret = models.CharField(max_length=256, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    health = models.CharField(
+        max_length=20, choices=Health.choices, default=Health.AWAITING
+    )
+    last_status = models.PositiveIntegerField(null=True, blank=True)
+    last_triggered_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["owner", "event", "is_active"])]
+
+    def __str__(self) -> str:
+        return f"{self.owner_id}:{self.event} -> {self.url}"

@@ -2,7 +2,9 @@ from django.shortcuts import get_object_or_404
 from ninja import Router
 from ninja.errors import HttpError
 
-from blog.models import Comment, Post
+from blog.activity import record_activity
+from blog.models import ActivityEvent, Comment, Post
+from blog.tasks import emit_event
 
 from ..auth import get_optional_user
 from ..pagination import paginate
@@ -41,6 +43,24 @@ def create_comment(request, slug: str, data: CommentCreateIn):
             Comment.Moderation.APPROVED if auto_approve else Comment.Moderation.PENDING
         ),
     )
+    # Notify the post author of the new comment (webhook + activity feed).
+    if not auto_approve:
+        emit_event(
+            post.author_id,
+            "comment.created",
+            {
+                "event": "comment.created",
+                "post": {"slug": post.slug, "title": post.title},
+                "comment": {"id": comment.id, "author": request.auth.username},
+            },
+        )
+        record_activity(
+            post.author_id,
+            ActivityEvent.Type.COMMENT,
+            f"New comment from {request.auth.username}",
+            data.body[:200],
+            {"post_slug": post.slug, "comment_id": comment.id},
+        )
     return 201, comment
 
 
@@ -57,4 +77,13 @@ def moderate_comment(request, comment_id: int, data: CommentModerateIn):
     comment.moderation_status = data.status
     comment.moderation_reason = data.reason
     comment.save(update_fields=["moderation_status", "moderation_reason", "updated_at"])
+
+    if data.status == Comment.Moderation.APPROVED:
+        record_activity(
+            comment.post.author_id,
+            ActivityEvent.Type.COMMENT_APPROVED,
+            f"Comment approved from {comment.author.username}",
+            comment.body[:200],
+            {"post_slug": comment.post.slug, "comment_id": comment.id},
+        )
     return comment

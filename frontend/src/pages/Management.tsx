@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Box, Typography, Avatar, Button, Chip, Stack, InputBase, Skeleton } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import { LayoutDashboard, MessageSquare, Users, BarChart2, Settings, Shield, Search, Bell, Check, MoreVertical } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { formatDistanceToNow } from 'date-fns';
+import { useGetMyCommentsQuery, useModerateCommentMutation } from '../store/apiSlice';
 
 interface Comment {
   id: number;
@@ -13,15 +15,6 @@ interface Comment {
   status: 'pending' | 'approved' | 'rejected';
   urgent?: boolean;
 }
-
-const MOCK_COMMENTS: Comment[] = [
-  { id: 1, author: { name: 'Erik Sorenson', avatar: 'https://i.pravatar.cc/150?u=erik', role: 'Contributor' }, post: '"Scaling Postgres..."', body: 'The insights on PostgreSQL optimization were incredibly helpful for our current sprint. Quick question: how do you handle connection pooling at scale?', time: '2m ago', status: 'pending' },
-  { id: 2, author: { name: 'Anna Lindberg', avatar: 'https://i.pravatar.cc/150?u=anna', role: 'Reader' }, post: '"Nordic Trust Design..."', body: 'This design system is so clean. I love the use of white space here. Is there a public Figma file available for the community?', time: '15m ago', status: 'pending', urgent: true },
-  { id: 3, author: { name: 'Anonymous', avatar: '', role: '' }, post: '"Webhooks & Events"', body: 'Can someone verify if the secret header is mandatory for all requests or just production ones?', time: '1h ago', status: 'pending' },
-  { id: 4, author: { name: 'Lars Jensen', avatar: 'https://i.pravatar.cc/150?u=lars', role: 'Pro Member' }, post: '"Fintech Future..."', body: '"Great read on the future of Fintech in Scandinavia. Looking forward to the next part."', time: '1h ago', status: 'approved' },
-  { id: 5, author: { name: 'Karin Holm', avatar: 'https://i.pravatar.cc/150?u=karin', role: 'Contributor' }, post: '"Scaling Postgres..."', body: '"The section on indexing was gold. Really simplified a complex topic."', time: '3h ago', status: 'approved' },
-  { id: 6, author: { name: 'Bot User 99', avatar: '', role: 'Bot' }, post: '"Any Post"', body: 'Check out this amazing offer for fast cash now! Visit our site at spam-link.com to claim your prize today...', time: 'Yesterday', status: 'rejected' },
-];
 
 const KanbanCard = ({ comment, onApprove, onReject }: { comment: Comment; onApprove: () => void; onReject: () => void }) => {
   const isPending = comment.status === 'pending';
@@ -134,21 +127,25 @@ const KanbanCard = ({ comment, onApprove, onReject }: { comment: Comment; onAppr
 };
 
 export default function Management() {
-  const [comments, setComments] = useState<Comment[]>(MOCK_COMMENTS);
+  const { data, isLoading } = useGetMyCommentsQuery({ page_size: 100 });
+  const [moderate] = useModerateCommentMutation();
   const [search, setSearch] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 1200);
-    return () => clearTimeout(timer);
-  }, []);
+  const comments: Comment[] = (data?.results || []).map((c: any) => ({
+    id: c.id,
+    author: { name: c.author.username, avatar: c.author.avatar || '', role: c.author.title || '' },
+    post: `"${c.post.title}"`,
+    body: c.body,
+    time: formatDistanceToNow(new Date(c.created_at), { addSuffix: true }),
+    status: c.moderation_status,
+  }));
 
   const pending = comments.filter((c) => c.status === 'pending' && (c.author.name.toLowerCase().includes(search.toLowerCase()) || c.body.toLowerCase().includes(search.toLowerCase())));
   const approved = comments.filter((c) => c.status === 'approved');
   const rejected = comments.filter((c) => c.status === 'rejected');
 
-  const approve = (id: number) => setComments((prev) => prev.map((c) => c.id === id ? { ...c, status: 'approved' } : c));
-  const reject = (id: number) => setComments((prev) => prev.map((c) => c.id === id ? { ...c, status: 'rejected' } : c));
+  const approve = (id: number) => moderate({ id, status: 'approved' });
+  const reject = (id: number) => moderate({ id, status: 'rejected' });
 
   const columns = [
     { title: 'Pending', color: '#f59e0b', bgColor: 'rgb(251,191,36)', items: pending, countLabel: `${pending.length} NEW`, status: 'pending' as const },
@@ -164,9 +161,13 @@ export default function Management() {
   ];
 
   return (
-    <Box sx={{ display: 'flex', height: 'calc(100vh - 64px)', bgcolor: '#F8F8FF', overflow: 'hidden' }}>
+    <Box component={motion.div} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8 }} sx={{ display: 'flex', height: 'calc(100vh - 80px)', bgcolor: '#F8F8FF', overflow: 'hidden' }}>
       {/* Left Sidebar */}
       <Box
+        component={motion.aside}
+        initial={{ x: -20, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        transition={{ duration: 0.6, delay: 0.2 }}
         sx={{
           width: { xs: 80, lg: 256 },
           bgcolor: 'white',

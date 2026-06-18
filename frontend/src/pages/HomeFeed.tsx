@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { Box, Typography, Button, Stack, Skeleton } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import { useGetPostsQuery } from '../store/apiSlice';
+import { useGetPostsQuery, useGetCategoriesQuery } from '../store/apiSlice';
 import { ArrowUpRight } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const FeedRow = ({ post, index }: { post: any; index: number }) => (
   <motion.div
@@ -108,7 +109,13 @@ const FeedRow = ({ post, index }: { post: any; index: number }) => (
 );
 
 export default function HomeFeed() {
-  const { data, isLoading } = useGetPostsQuery({});
+  const [category, setCategory] = useState<string | undefined>(undefined);
+  const { data: categories = [] } = useGetCategoriesQuery({});
+  // Activity Stream = top 5 published posts (all authors) ranked by comment count.
+  const { data, isLoading } = useGetPostsQuery({ category, sort: 'comments', page_size: 5 });
+  const items: any[] = data?.results ?? [];
+
+  const tabs = [{ slug: undefined as string | undefined, name: 'All Posts' }, ...categories.map((c: any) => ({ slug: c.slug, name: c.name }))];
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#F8F8FF' }}>
@@ -226,49 +233,70 @@ export default function HomeFeed() {
           <Typography variant="h4" sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 700, letterSpacing: '-0.02em' }}>
             Activity Stream
           </Typography>
-          <Stack direction="row" spacing={4} sx={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.2em', opacity: 0.5 }}>
-            <Box component="a" href="#" sx={{ color: '#3AA8C1', opacity: '1 !important', borderBottom: '2px solid #3AA8C1', pb: 0.5, textDecoration: 'none' }}>All Posts</Box>
-            <Box component="a" href="#" sx={{ color: 'inherit', textDecoration: 'none', borderBottom: '2px solid transparent', pb: 0.5, '&:hover': { color: '#2A3439', borderColor: '#2A3439', opacity: 1 } }}>Infrastructure</Box>
-            <Box component="a" href="#" sx={{ color: 'inherit', textDecoration: 'none', borderBottom: '2px solid transparent', pb: 0.5, '&:hover': { color: '#2A3439', borderColor: '#2A3439', opacity: 1 } }}>Protocols</Box>
-            <Box component="a" href="#" sx={{ color: 'inherit', textDecoration: 'none', borderBottom: '2px solid transparent', pb: 0.5, '&:hover': { color: '#2A3439', borderColor: '#2A3439', opacity: 1 } }}>Risk Lab</Box>
+          <Stack direction="row" spacing={4} sx={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.2em', opacity: 0.5, flexWrap: 'wrap' }}>
+            {tabs.map((t) => {
+              const active = category === t.slug;
+              return (
+                <Box
+                  key={t.name}
+                  component="button"
+                  onClick={() => setCategory(t.slug)}
+                  sx={{
+                    background: 'none', border: 'none', cursor: 'pointer', p: 0, font: 'inherit',
+                    letterSpacing: '0.2em', textTransform: 'uppercase', fontWeight: 700,
+                    color: active ? '#3AA8C1' : 'inherit',
+                    opacity: active ? 1 : undefined,
+                    borderBottom: active ? '2px solid #3AA8C1' : '2px solid transparent',
+                    pb: 0.5,
+                    '&:hover': { color: '#2A3439', borderColor: '#2A3439', opacity: 1 },
+                  }}
+                >
+                  {t.name}
+                </Box>
+              );
+            })}
           </Stack>
         </Stack>
 
-        <Box sx={{ borderTop: '1px solid rgba(42,52,57,0.05)', borderBottom: '1px solid rgba(42,52,57,0.05)', bgcolor: 'rgba(42,52,57,0.02)' }}>
-          {isLoading
-            ? [1, 2, 3, 4].map((i) => (
-                <Box key={i} sx={{ display: 'flex', gap: 3, p: 3, borderBottom: '1px solid rgba(42,52,57,0.05)' }}>
-                  <Skeleton variant="circular" width={12} height={12} sx={{ mt: 1, flexShrink: 0 }} />
-                  <Box sx={{ flex: 1 }}>
-                    <Skeleton width="30%" height={14} sx={{ mb: 1 }} />
-                    <Skeleton width="70%" height={22} sx={{ mb: 1 }} />
-                    <Skeleton width="90%" height={16} />
+        <Box sx={{ borderTop: '1px solid rgba(42,52,57,0.05)', borderBottom: '1px solid rgba(42,52,57,0.05)', bgcolor: 'rgba(42,52,57,0.01)' }}>
+          <AnimatePresence mode="wait">
+            {isLoading ? (
+              <motion.div
+                key="skeleton"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+              >
+                {[1, 2, 3, 4].map((i) => (
+                  <Box key={i} sx={{ display: 'flex', gap: { xs: 5, lg: 12 }, py: { xs: 5, md: 10 }, px: { xs: 3, md: 8 }, borderBottom: '1px solid rgba(42,52,57,0.03)' }}>
+                    <Skeleton variant="circular" width={12} height={12} sx={{ mt: 1, flexShrink: 0 }} />
+                    <Box sx={{ flex: 1 }}>
+                      <Skeleton width="20%" height={14} sx={{ mb: 2 }} />
+                      <Skeleton width="60%" height={32} sx={{ mb: 1.5 }} />
+                      <Skeleton width="85%" height={20} sx={{ mb: 1 }} />
+                      <Skeleton width="70%" height={20} />
+                    </Box>
                   </Box>
-                </Box>
-              ))
-            : data?.results?.map((post: any, i: number) => <FeedRow key={post.id} post={post} index={i} />)}
-        </Box>
-
-        <Box sx={{ mt: 6, display: 'flex', justifyContent: 'center' }}>
-          <Button
-            variant="outlined"
-            sx={{
-              borderRadius: '999px',
-              px: 7,
-              py: 1.5,
-              fontSize: '0.7rem',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.3em',
-              borderColor: 'rgba(42,52,57,0.12)',
-              color: '#2A3439',
-              overflow: 'hidden',
-              position: 'relative',
-              '&:hover': { bgcolor: '#2A3439', color: '#F8F8FF', borderColor: '#2A3439' },
-            }}
-          >
-            Load Archives
-          </Button>
+                ))}
+              </motion.div>
+            ) : items.length > 0 ? (
+              <motion.div
+                key="content"
+                initial="hidden"
+                animate="visible"
+                variants={{
+                  visible: { transition: { staggerChildren: 0.05 } }
+                }}
+              >
+                {items.map((post: any, i: number) => <FeedRow key={post.id} post={post} index={i} />)}
+              </motion.div>
+            ) : (
+              <Box key="empty" sx={{ p: 12, textAlign: 'center', opacity: 0.35 }}>
+                <Typography sx={{ fontStyle: 'italic', fontSize: '1.1rem' }}>No posts in this category yet.</Typography>
+              </Box>
+            )}
+          </AnimatePresence>
         </Box>
       </Box>
 

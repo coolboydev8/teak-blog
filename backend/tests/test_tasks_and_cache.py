@@ -26,6 +26,7 @@ def test_list_response_is_cached(api, author):
         "category": None,
         "tag": None,
         "search": None,
+        "sort": None,
         "page": 1,
         "page_size": 20,
     }

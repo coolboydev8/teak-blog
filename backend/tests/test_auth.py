@@ -61,3 +61,49 @@ def test_refresh_issues_new_access(api, make_user):
 def test_protected_endpoint_requires_auth(api):
     assert api.get("/api/auth/me").status_code == 401
     assert api.get("/api/me/posts").status_code == 401
+
+
+def test_password_reset_flow(api, make_user):
+    import re
+
+    from django.core import mail
+
+    make_user(username="resetme", password="Str0ngPass!", email="resetme@example.com")
+
+    resp = api.post("/api/auth/password/reset", {"email": "resetme@example.com"})
+    assert resp.status_code == 200
+    assert len(mail.outbox) == 1
+
+    match = re.search(r"uid=([^&\s]+)&token=([^&\s]+)", mail.outbox[0].body)
+    assert match, "reset email should contain a uid/token link"
+    uid, token = match.group(1), match.group(2)
+
+    confirm = api.post(
+        "/api/auth/password/reset/confirm",
+        {"uid": uid, "token": token, "new_password": "BrandNewP@ss1"},
+    )
+    assert confirm.status_code == 200
+
+    # Old password is dead, new one works.
+    assert api.post("/api/auth/login", {"username": "resetme", "password": "Str0ngPass!"}).status_code == 401
+    assert api.post("/api/auth/login", {"username": "resetme", "password": "BrandNewP@ss1"}).status_code == 200
+
+
+def test_password_reset_unknown_email_is_generic(api):
+    resp = api.post("/api/auth/password/reset", {"email": "nobody@example.com"})
+    assert resp.status_code == 200  # no account enumeration
+    assert resp.json()["reset_url"] is None
+
+
+def test_password_reset_rejects_bad_token(api, make_user):
+    from django.contrib.auth import get_user_model
+    from django.utils.encoding import force_bytes
+    from django.utils.http import urlsafe_base64_encode
+
+    user = make_user(username="reset2", email="reset2@example.com")
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    resp = api.post(
+        "/api/auth/password/reset/confirm",
+        {"uid": uid, "token": "bad-token", "new_password": "BrandNewP@ss1"},
+    )
+    assert resp.status_code == 400

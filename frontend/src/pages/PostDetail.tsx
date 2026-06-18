@@ -1,8 +1,30 @@
+import { useState } from 'react';
 import { useParams, Link as RouterLink } from 'react-router-dom';
-import { useGetPostBySlugQuery } from '../store/apiSlice';
-import { Box, Container, Typography, Avatar, Chip, Stack, Skeleton } from '@mui/material';
-import { motion } from 'framer-motion';
-import { ArrowLeft, Share2, Bookmark, ArrowRight } from 'lucide-react';
+import { useSelector } from 'react-redux';
+import type { RootState } from '../store';
+import {
+  useGetPostBySlugQuery,
+  useGetCommentsQuery,
+  useCreateCommentMutation,
+  useSubscribeMutation,
+} from '../store/apiSlice';
+import { Box, Container, Typography, Avatar, Chip, Stack, Skeleton, Button, TextField, Tooltip } from '@mui/material';
+import { motion, AnimatePresence } from 'framer-motion';
+import { formatDistanceToNow } from 'date-fns';
+import { ArrowLeft, Share2, Bookmark, ArrowRight, UserPlus, Send, ShieldCheck } from 'lucide-react';
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1, delayChildren: 0.2 }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: 'easeOut' } }
+};
 
 const SPEC_INDEX = [
   'Idempotency & Request Validation',
@@ -57,78 +79,109 @@ const RadialChart = ({ minutes }: { minutes: number }) => {
 export default function PostDetail() {
   const { slug } = useParams();
   const { data: post, isLoading } = useGetPostBySlugQuery(slug);
+  const { data: commentsData } = useGetCommentsQuery({ slug }, { skip: !slug });
+  const [createComment, { isLoading: posting }] = useCreateCommentMutation();
+  const [subscribe, { isSuccess: subscribed }] = useSubscribeMutation();
+  const token = useSelector((s: RootState) => s.auth.token);
+  const [commentBody, setCommentBody] = useState('');
+
+  const submitComment = async () => {
+    if (!commentBody.trim() || !slug) return;
+    try {
+      await createComment({ slug, body: commentBody }).unwrap();
+      setCommentBody('');
+    } catch (err) {
+      console.error('Failed to post comment:', err);
+    }
+  };
 
   if (isLoading) return (
-    <Box sx={{ bgcolor: '#F8F8FF', minHeight: '100vh', pt: 4 }}>
+    <Box sx={{ bgcolor: '#F8F8FF', minHeight: '100vh', pt: 8 }}>
       <Container maxWidth="lg">
-        <Skeleton variant="rectangular" width="100%" height={480} sx={{ borderRadius: '24px', mb: 4 }} />
-        <Skeleton width="70%" height={48} sx={{ mb: 2 }} />
-        <Skeleton width="40%" height={24} />
+        <Stack spacing={4}>
+          <Skeleton variant="rectangular" width="100%" height={480} sx={{ borderRadius: '40px' }} />
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '7fr 5fr' }, gap: 5 }}>
+            <Stack spacing={3}>
+              <Skeleton variant="rectangular" height={120} sx={{ borderRadius: '24px' }} />
+              <Skeleton width="100%" height={24} />
+              <Skeleton width="90%" height={24} />
+              <Skeleton width="95%" height={24} />
+            </Stack>
+            <Skeleton variant="rectangular" height={360} sx={{ borderRadius: '24px' }} />
+          </Box>
+        </Stack>
       </Container>
     </Box>
   );
 
   if (!post) return (
-    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-      <Typography variant="h5" color="text.secondary">Post not found.</Typography>
+    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', bgcolor: '#F8F8FF' }}>
+      <Stack alignItems="center" spacing={2}>
+        <ShieldCheck size={48} color="rgba(42,52,57,0.1)" />
+        <Typography variant="h5" sx={{ fontWeight: 700, color: 'rgba(42,52,57,0.3)' }}>Post not found or restricted.</Typography>
+        <Button component={RouterLink} to="/" sx={{ color: '#3AA8C1', fontWeight: 800 }}>Return to Safety</Button>
+      </Stack>
     </Box>
   );
 
   const readMinutes = post.read_time_minutes || 12;
 
   return (
-    <Box sx={{ bgcolor: '#F8F8FF', minHeight: '100vh' }}>
+    <Box component={motion.div} initial="hidden" animate="visible" variants={containerVariants} sx={{ bgcolor: '#F8F8FF', minHeight: '100vh' }}>
       {/* Hero with full-width image */}
       <Box sx={{ pt: 4, px: { xs: 2, md: 4 }, mb: 6 }}>
         <Container maxWidth="lg">
-          <Box
-            component={RouterLink}
-            to="/"
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 1,
-              textDecoration: 'none',
-              color: 'text.secondary',
-              mb: 3,
-              fontSize: '0.75rem',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.2em',
-              '&:hover': { color: 'primary.main' },
-            }}
-          >
-            <ArrowLeft size={14} />
-            Back to Insights
-          </Box>
+          <motion.div variants={itemVariants}>
+            <Box
+              component={RouterLink}
+              to="/"
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 1.5,
+                textDecoration: 'none',
+                color: 'rgba(42,52,57,0.4)',
+                mb: 3,
+                fontSize: '0.7rem',
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.25em',
+                transition: 'color 0.2s',
+                '&:hover': { color: '#3AA8C1' },
+              }}
+            >
+              <ArrowLeft size={14} strokeWidth={3} />
+              Back to Insights
+            </Box>
+          </motion.div>
 
           {/* Hero Image */}
-          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
+          <motion.div variants={itemVariants}>
             <Box
               sx={{
                 position: 'relative',
                 width: '100%',
-                height: { xs: 280, md: 480 },
-                borderRadius: '24px',
+                height: { xs: 320, md: 520 },
+                borderRadius: '40px',
                 overflow: 'hidden',
-                boxShadow: '0 40px 80px -20px rgba(42,52,57,0.2)',
+                boxShadow: '0 40px 80px -20px rgba(42,52,57,0.15)',
               }}
             >
               <Box
                 component="img"
                 src="https://images.unsplash.com/photo-1548248823-ce16a73b6d49?auto=format&w=1800&q=80&fit=crop"
                 alt={post.title}
-                sx={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'brightness(0.5)' }}
+                sx={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'brightness(0.6)' }}
               />
-              <Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(42,52,57,0.9) 0%, rgba(42,52,57,0.2) 60%, transparent 100%)' }} />
-              <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, p: { xs: 3, md: 6 } }}>
+              <Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(42,52,57,0.95) 0%, rgba(42,52,57,0.3) 50%, transparent 100%)' }} />
+              <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, p: { xs: 4, md: 8 } }}>
                 <Stack direction="row" spacing={1.5} sx={{ mb: 3 }}>
                   <Chip
                     label="TECH REPORT"
                     size="small"
-                    sx={{ bgcolor: '#3AA8C1', color: 'white', fontWeight: 800, fontSize: '0.6rem', letterSpacing: '0.25em', borderRadius: '4px', height: 24 }}
+                    sx={{ bgcolor: '#3AA8C1', color: 'white', fontWeight: 900, fontSize: '0.6rem', letterSpacing: '0.3em', borderRadius: '6px', height: 26 }}
                   />
-                  <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.3em', alignSelf: 'center' }}>
+                  <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.35em', alignSelf: 'center' }}>
                     V. 40.2 / {post.category?.name?.toUpperCase() || 'ARCHITECTURE'}
                   </Typography>
                 </Stack>
@@ -137,11 +190,11 @@ export default function PostDetail() {
                   sx={{
                     fontFamily: '"Inter", sans-serif',
                     fontWeight: 900,
-                    fontSize: { xs: '1.8rem', md: '3.5rem', lg: '4.5rem' },
+                    fontSize: { xs: '2.2rem', md: '4rem', lg: '5rem' },
                     color: 'white',
-                    lineHeight: 0.95,
-                    letterSpacing: '-0.04em',
-                    maxWidth: '80%',
+                    lineHeight: 0.9,
+                    letterSpacing: '-0.05em',
+                    maxWidth: '90%',
                   }}
                 >
                   {post.title}
@@ -153,11 +206,11 @@ export default function PostDetail() {
       </Box>
 
       {/* Author + metadata + radial chart */}
-      <Container maxWidth="lg" sx={{ mb: 8 }}>
+      <Container maxWidth="lg" sx={{ mb: 10 }}>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '7fr 5fr' }, gap: 5, alignItems: 'start' }}>
           {/* Left: Author card + metadata */}
           <Box>
-            <motion.div initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.8, delay: 0.3 }}>
+            <motion.div variants={itemVariants}>
               <Box
                 sx={{
                   display: 'flex',
@@ -165,34 +218,58 @@ export default function PostDetail() {
                   gap: 3,
                   p: 4,
                   bgcolor: 'white',
-                  border: '1px solid rgba(42,52,57,0.05)',
-                  boxShadow: '0 4px 20px rgba(0,0,0,0.03)',
-                  borderRadius: '16px',
-                  mb: 4,
+                  border: '1px solid rgba(42,52,57,0.02)',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.03)',
+                  borderRadius: '24px',
+                  mb: 5,
                 }}
               >
                 <Avatar
                   src={post.author.avatar || `https://i.pravatar.cc/150?u=${post.author.username}`}
-                  sx={{ width: 80, height: 80, border: '4px solid rgba(58,168,193,0.1)' }}
+                  sx={{ width: 88, height: 88, border: '4px solid white', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
                 />
                 <Box>
-                  <Typography sx={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.2em', color: '#3AA8C1', mb: 0.5 }}>
+                  <Typography sx={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', color: '#3AA8C1', mb: 0.5 }}>
                     Lead Contributor
                   </Typography>
-                  <Typography variant="h5" sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 700, mb: 0.5 }}>
+                  <Typography variant="h5" sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 800, mb: 0.5, color: '#2A3439' }}>
                     {post.author.username}
                   </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.5, fontWeight: 500 }}>
-                    Principal Architect, Teak Engineering
+                  <Typography variant="body2" sx={{ opacity: 0.45, fontWeight: 600 }}>
+                    {post.author.title || 'Principal Architect, Teak Engineering'}
                   </Typography>
                 </Box>
-                <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
-                  <Box sx={{ width: 36, height: 36, borderRadius: '50%', border: '1px solid rgba(42,52,57,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', '&:hover': { color: '#3AA8C1', borderColor: '#3AA8C1' } }}>
-                    <Share2 size={16} />
-                  </Box>
-                  <Box sx={{ width: 36, height: 36, borderRadius: '50%', border: '1px solid rgba(42,52,57,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', '&:hover': { color: '#3AA8C1', borderColor: '#3AA8C1' } }}>
-                    <Bookmark size={16} />
-                  </Box>
+                <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    disabled={subscribed}
+                    startIcon={<UserPlus size={14} strokeWidth={3} />}
+                    onClick={() => subscribe({ author_id: post.author.id })}
+                    sx={{ 
+                      bgcolor: '#3AA8C1', 
+                      borderRadius: '999px', 
+                      fontSize: '0.65rem', 
+                      fontWeight: 900, 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.15em', 
+                      px: 3, 
+                      py: 1,
+                      '&:hover': { bgcolor: '#2A3439' } 
+                    }}
+                  >
+                    {subscribed ? 'Subscribed' : 'Subscribe'}
+                  </Button>
+                  <Tooltip title="Share Insight" arrow>
+                    <Box sx={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid rgba(42,52,57,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s', '&:hover': { color: '#3AA8C1', borderColor: '#3AA8C1', bgcolor: 'rgba(58,168,193,0.05)' } }}>
+                      <Share2 size={18} />
+                    </Box>
+                  </Tooltip>
+                  <Tooltip title="Bookmark for Review" arrow>
+                    <Box sx={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid rgba(42,52,57,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s', '&:hover': { color: '#3AA8C1', borderColor: '#3AA8C1', bgcolor: 'rgba(58,168,193,0.05)' } }}>
+                      <Bookmark size={18} />
+                    </Box>
+                  </Tooltip>
                 </Box>
               </Box>
 
@@ -201,10 +278,10 @@ export default function PostDetail() {
                 {[
                   { label: 'Publication Date', value: post.published_at ? new Date(post.published_at).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Unpublished' },
                   { label: 'System Status', value: post.status === 'published' ? '● Active / Live' : '○ Draft', accent: post.status === 'published' },
-                  { label: 'Security Tier', value: 'L4 - High Trust' },
-                  { label: 'Repository', value: 'teak/core', accent: true },
-                  { label: 'License', value: 'MIT-Standard' },
-                  { label: 'Compliance', value: 'SOC2 / GDPR' },
+                  { label: 'Security Tier', value: post.metadata?.security_tier || 'L4 - High Trust' },
+                  { label: 'Repository', value: post.metadata?.repository || 'teak/core', accent: true },
+                  { label: 'License', value: post.metadata?.license || 'MIT-Standard' },
+                  { label: 'Compliance', value: post.metadata?.compliance || 'SOC2 / GDPR' },
                 ].map((m) => (
                   <Box key={m.label} sx={{ px: 2, pb: 3, '&:nth-of-type(3n+1)': { pl: 0 } }}>
                     <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.3em', opacity: 0.25, mb: 0.5 }}>
@@ -338,6 +415,57 @@ export default function PostDetail() {
               }}
             />
           ))}
+        </Box>
+
+        {/* Comments */}
+        <Box sx={{ mt: 8 }}>
+          <Typography sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 800, fontSize: '1.25rem', letterSpacing: '-0.02em', mb: 3 }}>
+            Discussion ({commentsData?.count ?? 0})
+          </Typography>
+
+          {token ? (
+            <Box sx={{ display: 'flex', gap: 1.5, mb: 5 }}>
+              <TextField
+                fullWidth
+                multiline
+                minRows={2}
+                placeholder="Add to the discussion…"
+                value={commentBody}
+                onChange={(e) => setCommentBody(e.target.value)}
+                sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'white', borderRadius: '12px', fontSize: '0.9rem' } }}
+              />
+              <Button
+                variant="contained"
+                disabled={posting || !commentBody.trim()}
+                onClick={submitComment}
+                sx={{ bgcolor: '#3AA8C1', borderRadius: '12px', px: 3, alignSelf: 'stretch', '&:hover': { bgcolor: '#2A3439' } }}
+              >
+                <Send size={16} />
+              </Button>
+            </Box>
+          ) : (
+            <Typography sx={{ opacity: 0.5, mb: 4, fontStyle: 'italic' }}>
+              <Box component={RouterLink} to="/auth/login" sx={{ color: '#3AA8C1', fontWeight: 700 }}>Sign in</Box> to join the discussion.
+            </Typography>
+          )}
+
+          <Stack spacing={2.5}>
+            {(commentsData?.results || []).map((c: any) => (
+              <Box key={c.id} sx={{ display: 'flex', gap: 2, p: 3, bgcolor: 'white', borderRadius: '16px', border: '1px solid rgba(42,52,57,0.05)' }}>
+                <Avatar src={c.author.avatar || `https://i.pravatar.cc/100?u=${c.author.username}`} sx={{ width: 40, height: 40 }} />
+                <Box sx={{ flex: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
+                    <Typography sx={{ fontWeight: 700, fontSize: '0.85rem' }}>{c.author.username}</Typography>
+                    <Typography sx={{ fontSize: '0.7rem', opacity: 0.35 }}>{formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}</Typography>
+                  </Box>
+                  <Typography sx={{ fontSize: '0.9rem', opacity: 0.75, lineHeight: 1.6 }}>{c.body}</Typography>
+                </Box>
+              </Box>
+            ))}
+            {commentsData?.results?.length === 0 && (
+              <Typography sx={{ opacity: 0.4, fontStyle: 'italic' }}>No approved comments yet. Be the first.</Typography>
+            )}
+          </Stack>
         </Box>
       </Container>
 

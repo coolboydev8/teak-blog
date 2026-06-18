@@ -1,31 +1,26 @@
-import { useState } from 'react';
 import {
   Box, Typography, Stack, Avatar, Button, Chip,
-  Table, TableBody, TableCell, TableHead, TableRow, TextField, InputAdornment, Skeleton
+  Table, TableBody, TableCell, TableHead, TableRow, Skeleton
 } from '@mui/material';
-import { useGetMySubscriptionsQuery } from '../store/apiSlice';
-import { Rss, MessageCircle, UserPlus, Pencil, Power, Plus, Check, X, Eye, EyeOff } from 'lucide-react';
+import {
+  useGetMySubscriptionsQuery,
+  useUpdateSubscriptionMutation,
+  useUnsubscribeMutation,
+  useGetWebhooksQuery,
+  useCreateWebhookMutation,
+  useDeleteWebhookMutation,
+  useGetMeQuery,
+  useUpdateProfileMutation,
+} from '../store/apiSlice';
+import { Rss, MessageCircle, UserPlus, Pencil, Trash2, Plus } from 'lucide-react';
 import { motion } from 'framer-motion';
-
-interface WebhookRow {
-  id: number;
-  event: string;
-  url: string;
-  secret: string;
-  status: 'functional' | 'awaiting' | 'inactive';
-  editing?: boolean;
-}
-
-const MOCK_WEBHOOKS: WebhookRow[] = [
-  { id: 1, event: 'post.published', url: 'https://api.nordictrust.se/v1/notify', secret: 'tk_live_••••••••••••••••', status: 'functional' },
-  { id: 2, event: 'comment.created', url: 'https://teak-hooks.nordic.io/dev-01', secret: 'secret_sk_test_992', status: 'awaiting', editing: true },
-  { id: 3, event: 'user.subscribed', url: 'https://analytics.internal/sync', secret: 'tk_live_••••••••••••••••', status: 'inactive' },
-];
+import { useNavigate } from 'react-router-dom';
 
 const StatusChip = ({ status }: { status: string }) => {
   const map: Record<string, { color: string; bg: string; label: string }> = {
     functional: { color: '#059669', bg: 'rgba(16,185,129,0.08)', label: 'Functional' },
-    awaiting: { color: '#b45309', bg: 'rgba(245,158,11,0.1)', label: 'Awaiting Save' },
+    awaiting: { color: '#b45309', bg: 'rgba(245,158,11,0.1)', label: 'Awaiting' },
+    failing: { color: '#dc2626', bg: 'rgba(239,68,68,0.1)', label: 'Failing' },
     inactive: { color: 'rgba(42,52,57,0.4)', bg: 'rgba(42,52,57,0.06)', label: 'Inactive' },
     active: { color: '#059669', bg: 'rgba(16,185,129,0.08)', label: 'Active' },
     paused: { color: 'rgba(42,52,57,0.4)', bg: 'rgba(42,52,57,0.06)', label: 'Paused' },
@@ -60,33 +55,61 @@ const EventIcon = ({ event }: { event: string }) => {
   return <Icon size={16} />;
 };
 
-export default function Subscriptions() {
-  const { isLoading } = useGetMySubscriptionsQuery({});
-  const [showSecrets, setShowSecrets] = useState<Record<number, boolean>>({});
-  const [webhooks] = useState<WebhookRow[]>(MOCK_WEBHOOKS);
+const SUB_COLORS = [
+  { color: '#e0e7ff', text: '#4338ca' },
+  { color: '#ffe4e6', text: '#e11d48' },
+  { color: '#fef3c7', text: '#d97706' },
+  { color: '#dcfce7', text: '#15803d' },
+];
 
-  const mockAuthors = [
-    { id: 1, initials: 'LS', name: 'Lars Svendson', role: 'Systems Principal', domain: 'Distributed Architecture', freq: 'Weekly Digest', status: 'active', color: '#e0e7ff', text: '#4338ca' },
-    { id: 2, initials: 'MK', name: 'Mette Knudsen', role: 'Ethics Director', domain: 'Fintech Compliance', freq: 'Real-time', status: 'active', color: '#ffe4e6', text: '#e11d48' },
-    { id: 3, initials: 'JA', name: 'Jakob Alm', role: 'Security Lead', domain: 'Threat Modeling', freq: 'Monthly Report', status: 'paused', color: '#fef3c7', text: '#d97706' },
-  ];
+export default function Subscriptions() {
+  const { data: me } = useGetMeQuery({});
+  const { data: subs = [], isLoading } = useGetMySubscriptionsQuery({});
+  const [updateSub] = useUpdateSubscriptionMutation();
+  const [unsub] = useUnsubscribeMutation();
+  const { data: webhooks = [] } = useGetWebhooksQuery({});
+  const [createWebhook] = useCreateWebhookMutation();
+  const [deleteWebhook] = useDeleteWebhookMutation();
+  const [updateProfile] = useUpdateProfileMutation();
+  const navigate = useNavigate();
+
+  const authors = subs.map((s: any, i: number) => ({
+    id: s.id,
+    initials: (s.author.username || '?').slice(0, 2).toUpperCase(),
+    name: s.author.username,
+    role: s.author.title || 'Author',
+    domain: s.author.domain || '—',
+    freq: s.frequency,
+    status: s.is_active ? 'active' : 'paused',
+    ...SUB_COLORS[i % SUB_COLORS.length],
+  }));
+
+  const onSubAction = (a: any) =>
+    a.status === 'active' ? unsub(a.id) : updateSub({ id: a.id, is_active: true });
+
+  const onNewEndpoint = () => {
+    const url = window.prompt('Destination URL:', 'https://');
+    if (!url) return;
+    const event =
+      window.prompt('Event (post.published / comment.created / user.subscribed):', 'post.published') ||
+      'post.published';
+    createWebhook({ event, url, secret: '' });
+  };
 
   if (isLoading) {
     return (
-      <Box sx={{ bgcolor: '#F8F8FF', minHeight: 'calc(100vh - 64px)', p: 8 }}>
+      <Box sx={{ bgcolor: '#F8F8FF', minHeight: 'calc(100vh - 80px)', p: 8 }}>
         <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
           <Skeleton width="40%" height={60} sx={{ mb: 4 }} />
-          <Skeleton variant="rectangular" height={150} sx={{ borderRadius: '16px', mb: 8 }} />
-          <Skeleton variant="rectangular" height={300} sx={{ borderRadius: '16px' }} />
+          <Skeleton variant="rectangular" height={150} sx={{ borderRadius: '24px', mb: 8 }} />
+          <Skeleton variant="rectangular" height={300} sx={{ borderRadius: '24px' }} />
         </Box>
       </Box>
     );
   }
 
-  const toggleSecret = (id: number) => setShowSecrets((p) => ({ ...p, [id]: !p[id] }));
-
   return (
-    <Box sx={{ bgcolor: '#F8F8FF', minHeight: 'calc(100vh - 64px)' }}>
+    <Box component={motion.div} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8 }} sx={{ bgcolor: '#F8F8FF', minHeight: 'calc(100vh - 80px)' }}>
       <Box sx={{ maxWidth: 1100, mx: 'auto', px: { xs: 3, md: 4 }, py: { xs: 5, md: 8 } }}>
 
         {/* Page header */}
@@ -113,23 +136,24 @@ export default function Subscriptions() {
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={4} sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}>
               <Stack direction="row" spacing={4} sx={{ alignItems: 'center' }}>
                 <Box sx={{ position: 'relative' }}>
-                  <Avatar src="https://i.pravatar.cc/150?u=nordic-erik" sx={{ width: 112, height: 112, border: '4px solid white', boxShadow: '0 8px 30px rgba(0,0,0,0.04)' }} />
+                  <Avatar src={me?.avatar || `https://i.pravatar.cc/150?u=${me?.username || 'user'}`} sx={{ width: 112, height: 112, border: '4px solid white', boxShadow: '0 8px 30px rgba(0,0,0,0.04)' }} />
                   <Box sx={{ position: 'absolute', bottom: 4, right: 4, width: 24, height: 24, bgcolor: '#10b981', border: '4px solid #F8F8FF', borderRadius: '50%' }} />
                 </Box>
                 <Box>
                   <Typography variant="h5" sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 900, letterSpacing: '-0.03em', mb: 1 }}>
-                    Erik Sørensen
+                    {me?.username || 'Author'}
                   </Typography>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, alignItems: 'center', mt: 0.5 }}>
-                    <Typography sx={{ color: '#3AA8C1', fontWeight: 700, fontSize: '0.875rem' }}>Systems Architect • Stockholm</Typography>
+                    <Typography sx={{ color: '#3AA8C1', fontWeight: 700, fontSize: '0.875rem' }}>{me?.title || 'Systems Architect'}{me?.domain ? ` • ${me.domain}` : ''}</Typography>
                     <Typography sx={{ fontSize: '0.8rem', opacity: 0.35 }}>
-                      erik.s@nordictrust.se
+                      {me?.email}
                     </Typography>
                   </Box>
                 </Box>
               </Stack>
               <Button
                 variant="contained"
+                onClick={() => navigate('/settings/profile')}
                 startIcon={<Pencil size={16} />}
                 sx={{ bgcolor: '#2A3439', borderRadius: '12px', px: 4, py: 1.5, fontWeight: 800, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.2em', boxShadow: '0 8px 24px rgba(42,52,57,0.15)', '&:hover': { bgcolor: '#3AA8C1' } }}
               >
@@ -148,7 +172,7 @@ export default function Subscriptions() {
                 <Typography sx={{ fontSize: '0.85rem', opacity: 0.4 }}>Verified industry insights from the Teak collective.</Typography>
               </Box>
               <Box sx={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.2em', color: 'rgba(42,52,57,0.3)', border: '1px solid rgba(42,52,57,0.07)', px: 1.5, py: 0.75, borderRadius: '6px' }}>
-                {mockAuthors.filter((a) => a.status === 'active').length} Active Authors
+                {authors.filter((a: any) => a.status === 'active').length} Active Authors
               </Box>
             </Box>
 
@@ -163,7 +187,14 @@ export default function Subscriptions() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {mockAuthors.map((a) => (
+                {authors.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} sx={{ py: 5, textAlign: 'center', opacity: 0.4, fontStyle: 'italic' }}>
+                      You are not subscribed to any authors yet.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {authors.map((a: any) => (
                   <TableRow
                     key={a.id}
                     sx={{ '& td': { borderBottom: '1px solid rgba(42,52,57,0.04)', py: 3 } }}
@@ -185,6 +216,7 @@ export default function Subscriptions() {
                     <TableCell align="right">
                       <Button
                         size="small"
+                        onClick={() => onSubAction(a)}
                         sx={{
                           fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.2em',
                           color: a.status === 'active' ? 'rgba(244,63,94,0.6)' : '#3AA8C1',
@@ -211,6 +243,7 @@ export default function Subscriptions() {
               </Box>
               <Button
                 variant="contained"
+                onClick={onNewEndpoint}
                 startIcon={<Plus size={16} />}
                 sx={{ bgcolor: '#2A3439', borderRadius: '12px', px: 3, py: 1.25, fontWeight: 800, fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.2em', boxShadow: '0 8px 24px rgba(42,52,57,0.15)', '&:hover': { bgcolor: '#3AA8C1' } }}
               >
@@ -229,77 +262,45 @@ export default function Subscriptions() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {webhooks.map((w) => {
-                  const isEditing = w.status === 'awaiting';
-                  const rowBg = isEditing ? 'rgba(245,158,11,0.04)' : 'transparent';
+                {webhooks.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} sx={{ py: 5, textAlign: 'center', opacity: 0.4, fontStyle: 'italic' }}>
+                      No callback endpoints configured. Use “New Endpoint” to add one.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {webhooks.map((w: any) => {
+                  const status = !w.is_active ? 'inactive' : w.health;
+                  const dim = status === 'inactive';
                   return (
                     <TableRow
                       key={w.id}
-                      sx={{
-                        bgcolor: rowBg,
-                        ...(isEditing ? { borderLeft: '4px solid #f59e0b' } : {}),
-                        '& td': { borderBottom: '1px solid rgba(42,52,57,0.04)', py: isEditing ? 3.5 : 2.5 },
-                      }}
+                      sx={{ '& td': { borderBottom: '1px solid rgba(42,52,57,0.04)', py: 2.5 } }}
                     >
                       <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, fontWeight: 700, fontSize: '0.875rem', color: isEditing ? '#92400e' : w.status === 'inactive' ? 'rgba(42,52,57,0.3)' : '#2A3439', fontStyle: isEditing ? 'italic' : 'normal' }}>
-                          <Box sx={{ color: isEditing ? '#f59e0b' : w.status === 'inactive' ? 'rgba(42,52,57,0.2)' : '#3AA8C1' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, fontWeight: 700, fontSize: '0.875rem', color: dim ? 'rgba(42,52,57,0.3)' : '#2A3439' }}>
+                          <Box sx={{ color: dim ? 'rgba(42,52,57,0.2)' : '#3AA8C1' }}>
                             <EventIcon event={w.event} />
                           </Box>
                           <span>{w.event}</span>
                         </Box>
                       </TableCell>
                       <TableCell>
-                        {isEditing ? (
-                          <TextField
-                            size="small"
-                            defaultValue={w.url}
-                            sx={{ width: 260, '& .MuiOutlinedInput-root': { fontFamily: 'monospace', fontSize: '0.75rem', borderRadius: '10px', bgcolor: 'white' } }}
-                          />
-                        ) : (
-                          <Typography sx={{ fontFamily: 'monospace', fontSize: '0.75rem', opacity: w.status === 'inactive' ? 0.25 : 0.5 }}>{w.url}</Typography>
-                        )}
+                        <Typography sx={{ fontFamily: 'monospace', fontSize: '0.75rem', opacity: dim ? 0.25 : 0.5 }}>{w.url}</Typography>
                       </TableCell>
                       <TableCell>
-                        {isEditing ? (
-                          <TextField
-                            size="small"
-                            type={showSecrets[w.id] ? 'text' : 'password'}
-                            defaultValue="secret_sk_test_992"
-                            slotProps={{
-                              input: {
-                                endAdornment: (
-                                  <InputAdornment position="end">
-                                    <Box onClick={() => toggleSecret(w.id)} sx={{ cursor: 'pointer', color: '#f59e0b', display: 'flex' }}>
-                                      {showSecrets[w.id] ? <Eye size={16} /> : <EyeOff size={16} />}
-                                    </Box>
-                                  </InputAdornment>
-                                ),
-                                sx: { fontFamily: 'monospace', fontSize: '0.75rem', borderRadius: '10px', bgcolor: 'white' },
-                              },
-                            }}
-                            sx={{ width: 220 }}
-                          />
-                        ) : (
-                          <Typography sx={{ fontFamily: 'monospace', fontSize: '0.75rem', opacity: w.status === 'inactive' ? 0.15 : 0.3 }}>{w.secret}</Typography>
-                        )}
+                        <Typography sx={{ fontFamily: 'monospace', fontSize: '0.75rem', opacity: dim ? 0.15 : 0.3 }}>
+                          {w.secret_set ? 'tk_live_••••••••••••••••' : '—'}
+                        </Typography>
                       </TableCell>
-                      <TableCell><StatusChip status={w.status} /></TableCell>
+                      <TableCell><StatusChip status={status} /></TableCell>
                       <TableCell align="right">
-                        {isEditing ? (
-                          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                            <Box sx={{ width: 40, height: 40, borderRadius: '10px', bgcolor: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 6px 16px rgba(16,185,129,0.2)', '&:hover': { bgcolor: '#059669' } }}>
-                              <Check size={18} color="white" />
-                            </Box>
-                            <Box sx={{ width: 40, height: 40, borderRadius: '10px', bgcolor: 'white', border: '1px solid rgba(245,158,11,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#f59e0b', '&:hover': { bgcolor: 'rgba(245,158,11,0.1)' } }}>
-                              <X size={18} />
-                            </Box>
-                          </Box>
-                        ) : (
-                          <Box sx={{ width: 36, height: 36, borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(42,52,57,0.2)', '&:hover': { bgcolor: '#F8F8FF', color: '#3AA8C1' } }}>
-                            {w.status === 'inactive' ? <Power size={16} /> : <Pencil size={16} />}
-                          </Box>
-                        )}
+                        <Box
+                          onClick={() => { if (window.confirm('Delete this webhook endpoint?')) deleteWebhook(w.id); }}
+                          sx={{ width: 36, height: 36, borderRadius: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(42,52,57,0.25)', '&:hover': { bgcolor: 'rgba(244,63,94,0.08)', color: '#f43f5e' } }}
+                        >
+                          <Trash2 size={16} />
+                        </Box>
                       </TableCell>
                     </TableRow>
                   );

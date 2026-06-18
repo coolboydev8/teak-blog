@@ -18,6 +18,10 @@ class User(AbstractUser):
     bio = models.TextField(blank=True)
     avatar = models.URLField(blank=True)
     website = models.URLField(blank=True)
+    # Editorial profile shown on author surfaces (e.g. "Lead Technical Writer",
+    # domain "Distributed Architecture").
+    title = models.CharField(max_length=120, blank=True)
+    domain = models.CharField(max_length=120, blank=True)
 
     def __str__(self) -> str:
         return self.username

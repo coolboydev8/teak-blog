@@ -73,6 +73,14 @@ class APIClient:
             headers=self._headers(headers),
         )
 
+    def patch(self, url, data=None, headers=None):
+        return self.client.patch(
+            url,
+            data=json.dumps(data or {}),
+            content_type="application/json",
+            headers=self._headers(headers),
+        )
+
     def delete(self, url, headers=None):
         return self.client.delete(url, headers=self._headers(headers))
 

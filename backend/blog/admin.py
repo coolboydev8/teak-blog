@@ -8,6 +8,7 @@ from .models import (
     PostRevision,
     Subscription,
     Tag,
+    Webhook,
 )
 
 
@@ -43,6 +44,13 @@ class CommentAdmin(admin.ModelAdmin):
 class SubscriptionAdmin(admin.ModelAdmin):
     list_display = ("subscriber", "author", "notification_method", "created_at")
     raw_id_fields = ("subscriber", "author")
+
+
+@admin.register(Webhook)
+class WebhookAdmin(admin.ModelAdmin):
+    list_display = ("owner", "event", "url", "is_active", "health", "last_triggered_at")
+    list_filter = ("event", "health", "is_active")
+    raw_id_fields = ("owner",)
 
 
 admin.site.register(PostRevision)

@@ -28,6 +28,5 @@ build/
 .DS_Store
 Thumbs.db
 
-# Non-deliverable artifacts (design notes & tooling)
-.kombai/
+# Design notes (not part of the deliverable)
 teak_inspired_blog_platform_comprehensive_design.md

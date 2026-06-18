@@ -9,6 +9,8 @@ from .routers.comments import router as comments_router
 from .routers.me import router as me_router
 from .routers.posts import router as posts_router
 from .routers.subscriptions import router as subscriptions_router
+from .routers.taxonomy import router as taxonomy_router
+from .routers.webhooks import router as webhooks_router
 
 api = NinjaAPI(
     title="Teak Blog API",
@@ -27,6 +29,8 @@ def handle_service_error(request, exc: ServiceError):
 api.add_router("/auth", auth_router)
 api.add_router("/posts", posts_router)
 api.add_router("/subscriptions", subscriptions_router)
+api.add_router("/webhooks", webhooks_router)
 api.add_router("/me", me_router)
-# Comment routes carry their own full paths (/posts/{slug}/comments, /comments/...).
+# Comment + taxonomy routes carry their own full paths.
 api.add_router("", comments_router)
+api.add_router("", taxonomy_router)

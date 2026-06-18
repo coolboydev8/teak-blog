@@ -43,14 +43,25 @@ def _derive_excerpt(content: str, limit: int = 200) -> str:
     return text[:limit].rstrip()
 
 
-def _resolve_tags(tag_ids: list[int] | None) -> list[Tag]:
-    if not tag_ids:
+def _resolve_tags(values: list | None) -> list[Tag]:
+    """Resolve tags given as ids (int) or names/slugs (str, get-or-created)."""
+    if not values:
         return []
-    tags = list(Tag.objects.filter(id__in=tag_ids))
-    found = {t.id for t in tags}
-    missing = set(tag_ids) - found
-    if missing:
-        raise ServiceError(f"Unknown tag id(s): {sorted(missing)}", status=422)
+    tags = []
+    for value in values:
+        if isinstance(value, int) or (isinstance(value, str) and value.strip().isdigit()):
+            try:
+                tags.append(Tag.objects.get(id=int(value)))
+            except Tag.DoesNotExist:
+                raise ServiceError(f"Unknown tag id: {value}", status=422)
+        else:
+            name = str(value).strip()
+            if not name:
+                continue
+            tag, _ = Tag.objects.get_or_create(
+                slug=slugify(name), defaults={"name": name}
+            )
+            tags.append(tag)
     return tags
 
 
@@ -84,7 +95,7 @@ def create_post(*, author, data: dict, idempotency_key: str | None = None) -> Po
 
     post = Post(
         title=data["title"],
-        slug=generate_unique_slug(data["title"]),
+        slug=generate_unique_slug(data.get("slug") or data["title"]),
         content=data["content"],
         excerpt=data.get("excerpt") or _derive_excerpt(data["content"]),
         author=author,
@@ -132,6 +143,8 @@ def update_post(*, post: Post, data: dict, editor) -> Post:
         post.excerpt = data["excerpt"]
     if "metadata" in data and data["metadata"] is not None:
         post.metadata = data["metadata"]
+    if data.get("slug"):
+        post.slug = generate_unique_slug(data["slug"], instance=post)
     if "category_id" in data:
         post.category = _resolve_category(data["category_id"])
 
@@ -162,9 +175,30 @@ def publish_post(*, post: Post) -> Post:
     # Fire side effects only on the draft -> published transition, and only
     # after the surrounding transaction commits (avoids notifying on rollback).
     if not already_published:
-        from .tasks import notify_subscribers
+        from .activity import record_activity
+        from .models import ActivityEvent
+        from .tasks import emit_event, notify_subscribers
 
-        transaction.on_commit(lambda: notify_subscribers.delay(post.id))
+        def _fire():
+            notify_subscribers.delay(post.id)
+            emit_event(
+                post.author_id,
+                "post.published",
+                {
+                    "event": "post.published",
+                    "post": {"id": post.id, "slug": post.slug, "title": post.title},
+                    "author": post.author.username,
+                },
+            )
+            record_activity(
+                post.author_id,
+                ActivityEvent.Type.PUBLISH,
+                post.title,
+                post.excerpt,
+                {"slug": post.slug},
+            )
+
+        transaction.on_commit(_fire)
 
     return post
 

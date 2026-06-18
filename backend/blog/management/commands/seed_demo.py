@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
 from blog import services
-from blog.models import Category, Comment, Subscription, Tag
+from blog.models import Category, Comment, Subscription, Tag, Webhook
 
 User = get_user_model()
 
@@ -24,6 +24,8 @@ class Command(BaseCommand):
             defaults={"email": "writer@teak.local", "bio": "I write about systems."},
         )
         author.set_password(DEMO_PASSWORD)
+        author.title = "Lead Technical Writer"
+        author.domain = "Distributed Architecture"
         author.save()
 
         reader, _ = User.objects.get_or_create(
@@ -97,6 +99,14 @@ class Command(BaseCommand):
             )
 
         Subscription.objects.get_or_create(subscriber=reader, author=author)
+
+        # A demo callback endpoint for the author's "Callback Workflows".
+        Webhook.objects.get_or_create(
+            owner=author,
+            event=Webhook.Event.POST_PUBLISHED,
+            url="https://example.test/hooks/post-published",
+            defaults={"secret": "whsec_demo"},
+        )
 
         self.stdout.write(
             self.style.SUCCESS(

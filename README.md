@@ -1,85 +1,89 @@
-# Teak-Inspired Blog Platform — Backend
+# Teak-Inspired Blog Platform
 
-A small but production-shaped blogging backend: authors create, edit, and
-publish posts; readers browse, comment, and subscribe. Built with **Django +
-Django Ninja + PostgreSQL**, with **Redis** caching and **Celery** for
-background work. The design deliberately mirrors patterns from Teak's embedded
-platform (quote → order → policy lifecycle ≈ draft → published → archived;
-partner config ≈ post metadata; partner webhooks ≈ subscriptions).
+A full-stack blogging platform: authors create, edit, publish, and moderate posts;
+readers browse, comment, and subscribe. A **React + TypeScript** single-page app
+talks to a **Django + Django Ninja + PostgreSQL** API, backed by **Redis** caching
+and a **Celery** worker for background work.
 
-> Scope: **backend only**. The `frontend/` directory is intentionally left
-> empty for this submission.
+The design deliberately mirrors patterns from Teak's embedded platform —
+quote → order → policy lifecycle ≈ **draft → published → archived**, partner
+config ≈ post metadata, partner webhooks ≈ **event callbacks**, and a fast,
+cacheable read path ≈ the public feed.
+
+```
+┌──────────────┐    /api (Vite proxy)   ┌──────────────┐   ┌────────────┐
+│ React SPA    │ ─────────────────────▶ │ Django Ninja │──▶│ PostgreSQL │
+│ (Vite :5173) │  JWT bearer + refresh  │  API (:8000) │   └────────────┘
+└──────────────┘                        │   + Celery   │──▶│   Redis    │
+                                        └──────────────┘   └────────────┘
+```
 
 ---
 
-## Quick start (Docker — recommended)
+## Quick start
 
-Everything (web, Celery worker, Postgres, Redis) is orchestrated by Compose.
+### 1. Backend (Docker — recommended)
+
+Compose runs the web server, Celery worker, Postgres, and Redis together.
 
 ```bash
-# from the repo root
-docker compose up --build           # starts db, redis, web (:8000), worker
-
-# in another shell: load demo data
-docker compose exec web python manage.py seed_demo
+docker compose up --build           # web :8000, worker, db (host :5433), redis :6379
+docker compose exec web python manage.py seed_demo        # demo users + content
+docker compose exec web python manage.py createsuperuser  # optional: admin login
 ```
 
-Then open:
+- **API docs (Swagger):** http://localhost:8000/api/docs
+- **Django admin:** http://localhost:8000/admin/
+- Migrations run automatically on `web` startup (`backend/entrypoint.sh`).
 
-- **Interactive API docs (Swagger):** http://localhost:8000/api/docs
-- **OpenAPI schema:** http://localhost:8000/api/openapi.json
-- **Django admin:** http://localhost:8000/admin/ (create an admin with
-  `docker compose exec web python manage.py createsuperuser`)
+### 2. Frontend (the SPA)
 
-Migrations are applied automatically on `web` startup (see `entrypoint.sh`).
+```bash
+cd frontend
+npm install
+npm run dev                         # http://localhost:5173
+```
 
-Demo credentials after seeding: `teak_writer` / `teak_reader`, password
-`Str0ngPass!`.
+`frontend/vite.config.ts` proxies `/api`, `/admin`, and `/static` to Django on
+`:8000`, so **no CORS configuration is needed**. Open the SPA at
+**http://localhost:5173**.
 
-### Run the tests
+### Demo credentials (after `seed_demo`)
+
+| Role | Username | Password |
+|---|---|---|
+| Author | `teak_writer` | `Str0ngPass!` |
+| Reader | `teak_reader` | `Str0ngPass!` |
+
+> Postgres is published on host port **5433** (not 5432) to avoid clashing with a
+> local Postgres — handy if you want to inspect data in pgAdmin
+> (`localhost:5433`, db/user/pass all `blog`).
+
+### Tests
 
 ```bash
 docker compose run --rm web pytest
 ```
 
-36 tests cover auth, the post lifecycle, slug generation, idempotency,
-ownership rules, comment moderation, caching/invalidation, async view counting,
-and webhook signing.
+**54 passing tests** cover auth (register, login, JWT refresh, password reset),
+the post lifecycle, slug generation, idempotency, ownership rules, comment
+moderation, caching/invalidation, async view counting, analytics, the activity
+feed, webhook signing, subscriptions, and comment-ranked sorting.
 
-### A 30-second end-to-end taste (curl)
+---
 
-```bash
-B=http://localhost:8000/api
-TOK=$(curl -s -X POST $B/auth/register -H 'Content-Type: application/json' \
-  -d '{"username":"me","email":"me@example.com","password":"Str0ngPass!"}' \
-  | python -c "import sys,json;print(json.load(sys.stdin)['tokens']['access'])")
+## What you can do (frontend → backend)
 
-SLUG=$(curl -s -X POST $B/posts/ -H "Authorization: Bearer $TOK" \
-  -H 'Content-Type: application/json' -H 'Idempotency-Key: k1' \
-  -d '{"title":"Hello","content":"My first post body."}' \
-  | python -c "import sys,json;print(json.load(sys.stdin)['slug'])")
-
-curl -s -X POST $B/posts/$SLUG/publish -H "Authorization: Bearer $TOK"
-curl -s "$B/posts/"            # public, cached list
-```
-
-## Running locally without Docker
-
-Requires Python 3.12, a local PostgreSQL, and a local Redis.
-
-```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt
-cp .env.example .env            # edit DATABASE_URL / REDIS_URL to taste
-python manage.py migrate
-python manage.py runserver
-# separate shell, for async tasks:
-celery -A config worker -l info
-```
-
-> Tip: set `CELERY_TASK_ALWAYS_EAGER=True` in `.env` to run tasks inline
-> without a worker.
+| Surface (SPA) | What it does | Key endpoints |
+|---|---|---|
+| **Login / Register / Forgot / Reset** | JWT auth (username **or** email), self-renewing sessions, full password-reset flow | `/auth/*`, `/auth/password/reset*` |
+| **Insights** (home) | Public feed — the **top 5 published posts by comment count**, plus category tabs | `GET /posts/?sort=comments` |
+| **Post detail** | Full article, author info, comments (list + post), subscribe-to-author, metadata-driven spec fields | `/posts/{slug}`, `/posts/{slug}/comments`, `/subscriptions/` |
+| **Authoring** (dashboard) | Real analytics (views, subscribers, trust score, audience reach), activity timeline — published posts only | `/me/analytics`, `/me/activity`, `/me/posts?status=published` |
+| **Content Library** | All your posts across **every status** (draft / published / archived) with edit · preview · archive | `/me/posts`, `/posts/{slug}/archive` |
+| **Editor** | Create/edit with live preview, category + tag-by-name input, custom slug, Save Draft vs Publish | `POST/PUT /posts`, `/posts/{slug}/publish` |
+| **Moderation** | Approve/Reject comment queue across all your posts | `/me/comments`, `/comments/{id}/moderate` |
+| **Settings** | Subscriptions (pause/resume/unsubscribe), webhook "callback workflows", profile editing | `/me/subscriptions`, `/webhooks/`, `PATCH /auth/me` |
 
 ---
 
@@ -87,11 +91,16 @@ celery -A config worker -l info
 
 | Area | Endpoints |
 |---|---|
-| Auth | `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/token/refresh`, `GET /api/auth/me` |
-| Posts | `GET /api/posts/`, `POST /api/posts/`, `GET/PUT/DELETE /api/posts/{slug}`, `POST /api/posts/{slug}/publish`, `POST /api/posts/{slug}/archive`, `GET /api/posts/{slug}/revisions` |
-| Dashboard | `GET /api/me/posts`, `GET /api/me/subscriptions` |
-| Comments | `GET/POST /api/posts/{slug}/comments`, `PUT /api/comments/{id}/moderate` |
-| Subscriptions | `POST /api/subscriptions/`, `DELETE /api/subscriptions/{id}` |
+| Auth | `POST /auth/register`, `POST /auth/login` (username **or email**), `POST /auth/token/refresh`, `GET /auth/me`, `PATCH /auth/me` |
+| Password reset | `POST /auth/password/reset`, `POST /auth/password/reset/confirm` |
+| Posts | `GET /posts/` (`?category=&tag=&search=&sort=comments&page=`), `POST /posts/`, `GET/PUT/DELETE /posts/{slug}`, `POST /posts/{slug}/publish`, `POST /posts/{slug}/archive`, `GET /posts/{slug}/revisions` |
+| Taxonomy | `GET /categories`, `GET /tags` |
+| Dashboard / me | `GET /me/posts` (`?status=`), `GET /me/comments` (moderation queue), `GET /me/subscriptions`, `GET /me/analytics`, `GET /me/activity`, `GET /me/notifications`, `POST /me/activity/read` |
+| Comments | `GET/POST /posts/{slug}/comments`, `PUT /comments/{id}/moderate` |
+| Subscriptions | `POST /subscriptions/`, `PATCH /subscriptions/{id}` (pause / frequency), `DELETE /subscriptions/{id}` |
+| Webhooks | `GET/POST /webhooks/`, `PATCH/DELETE /webhooks/{id}` (events: `post.published`, `comment.created`, `user.subscribed`) |
+
+All under the `/api` prefix; full schema at `/api/docs`.
 
 ---
 
@@ -99,129 +108,132 @@ celery -A config worker -l info
 
 ```
 backend/
-  config/        # Django project: settings, urls, celery, wsgi/asgi
-  users/         # custom User model
-  blog/          # domain: models, services, tasks, cache, admin, seed command
-  api/           # Django Ninja layer: routers, schemas, JWT auth, pagination
-  tests/         # pytest-django suite
+  config/   # Django project: settings, urls, celery, wsgi/asgi
+  users/    # custom User (email-unique, title/domain/bio profile)
+  blog/     # domain: models, services, tasks, cache, analytics, activity, seed
+  api/      # Django Ninja: routers, schemas, JWT auth/security, pagination
+  tests/    # pytest-django suite (54 tests)
+frontend/
+  src/
+    store/      # Redux Toolkit + RTK Query (apiSlice, authSlice, apiError)
+    features/   # auth pages (login, register, forgot, reset)
+    pages/      # Insights, PostDetail, Editor, Dashboard, Library, Moderation, Settings, EditProfile
 ```
 
-**1. Thin routers, fat services.** All domain rules — the publish/archive state
-machine, slug generation, idempotency, revision bookkeeping, cache
-invalidation — live in `blog/services.py`, not in the HTTP layer. Routers just
-parse/serialize and delegate. This keeps the rules unit-testable and reusable
-(admin, management commands, a future GraphQL/gRPC surface) and keeps the API
-files readable.
+**1. Thin routers, fat services.** Domain rules — the publish/archive state
+machine, slug generation, idempotency, revision bookkeeping, cache invalidation,
+event emission — live in `blog/services.py`, not the HTTP layer. Routers parse,
+serialize, and delegate. The rules stay unit-testable and reusable.
 
-**2. Custom `User` from day one.** Swapping in a custom user model later is one
-of Django's most painful migrations, so it's done up front even though the
-extra profile fields are small. `email` is unique (used for notifications).
+**2. Hand-rolled JWT (PyJWT), not DRF SimpleJWT.** Token auth was the only thing
+that would have dragged DRF into an otherwise Ninja-native stack. HS256
+access/refresh tokens are issued/verified directly (`api/security.py`, ~40 lines).
+The SPA stores both and **auto-refreshes on 401** (`store/apiSlice.ts`
+`baseQueryWithReauth`, single-flight), so a 30-minute access token never
+interrupts a working session; only an expired 7-day refresh token logs you out.
 
-**3. Hand-rolled JWT (PyJWT), not DRF SimpleJWT.** Token auth was the only thing
-that would have pulled DRF into an otherwise Ninja-native stack. Issuing and
-verifying HS256 access/refresh tokens directly (`api/security.py`, ~40 lines)
-is transparent, easy to defend in review, and avoids coupling the API to DRF.
-The trade-offs (symmetric key, no rotation/blacklist yet) are listed under
-"what I'd do next".
+**3. Password reset, done properly.** `POST /auth/password/reset` always returns
+`200` (no account enumeration), emails a tokenized link built with Django's
+`default_token_generator`; `…/confirm` validates the token + runs the password
+validators. Email uses the console backend in dev and **real SMTP when
+configured** (`EMAIL_HOST` etc. — see `backend/.env.example`).
 
-**4. Explicit post lifecycle.** `draft → published → archived` is enforced in
-`services.py`: publishing validates content, stamps `published_at` once
-(re-publish is a no-op on the timestamp), and only fires subscriber
-notifications on the *first* `draft → published` transition, via
-`transaction.on_commit` so we never notify on a rolled-back write. Only drafts
-can be hard-deleted; published posts are archived instead.
+**4. Explicit post lifecycle.** `draft → published → archived` enforced in
+services: publishing validates content, stamps `published_at` once, and fires
+subscriber notifications + webhooks + an activity event **only on the first
+`draft → published` transition**, via `transaction.on_commit` (never on a
+rolled-back write). Only drafts can be hard-deleted; published posts are archived.
 
 **5. Cache-aside with versioned keys (`blog/cache.py`).** The hot read paths
-(list + detail) are cached in Redis. Rather than track the unbounded set of
-filter/page permutations, every key embeds a global version counter; any write
-bumps the version, atomically invalidating all list/detail entries. Simple,
-correct, and the same trick Teak-style config caches use. View counts are
-incremented **asynchronously** off the read path (Celery), so the detail
-response stays fast at the cost of an eventually-consistent counter.
+(list + detail) are cached in Redis under keys that embed a global version
+counter; any write bumps the version, atomically invalidating every list/detail
+entry. View counts are incremented **asynchronously** off the read path (Celery)
+and logged to a `PostView` time-series for real trend/milestone analytics.
 
-**6. Celery for side effects.** Publishing fans out notifications to
-subscribers; webhook subscriptions get a real HTTP POST signed with an
-HMAC-SHA256 `X-Signature-256` header (mirroring partner webhook signing), with
-automatic retry/backoff. Email uses Django's console backend in dev.
+**6. Celery for side effects.** Publishing fans out subscriber notifications and
+HMAC-SHA256-signed (`X-Signature-256`) webhook deliveries with retry/backoff, and
+records activity-feed events. Webhook `health` reflects the last delivery result.
 
-**7. Idempotent creates.** `POST /api/posts/` honors an optional
-`Idempotency-Key` header; replaying a key returns the originally created post
-instead of duplicating — the same safety Teak's order creation gets from quote
-tokens. Enforced with a unique `(user, key)` constraint plus a race-safe
-fallback.
+**7. Real analytics, not mock numbers** (`blog/analytics.py`). Total views,
+subscriber count, deltas (30d vs prior 30d), a documented trust-score heuristic,
+and per-category "audience reach" are all aggregated from real data — single
+grouped queries riding existing indexes (e.g. `comment_count` via an annotated
+`Count(..., distinct=True)`), no N+1.
 
-**8. Flexible `metadata` JSONField on `Post`.** Per-post SEO overrides,
-experiment variants, and display settings live in a JSON blob so product
-behavior can change without a schema migration — analogous to Teak's
-partner/product config.
+**8. Idempotent creates & performance basics.** `POST /posts/` honors an optional
+`Idempotency-Key` header (unique `(user, key)` + race-safe fallback).
+`PostQuerySet.with_related()` kills N+1 on every list/detail; composite indexes
+back the public-list and dashboard access patterns.
 
-**9. Performance basics.** A `PostQuerySet.with_related()`
-(`select_related("author", "category").prefetch_related("tags")`) kills N+1 on
-every list/detail; composite indexes back the two real access patterns
-(`(status, -published_at)` for the public list, `(author, -created_at)` for the
-dashboard).
+**9. Frontend data layer.** RTK Query owns server state with **tag-based cache
+invalidation** — mutations invalidate `{Post, LIST}` / `Analytics` / `Activity`,
+and list views provide matching tags so a new draft or archive reflects
+immediately. Auth-only routes are guarded; the nav hides authoring tabs when
+signed out.
 
 ---
 
 ## Assumptions made
 
-- **Anyone registered can author.** There's no separate "author" role/approval
-  step; ownership is enforced per-post instead. Easy to add a role/flag later.
-- **Username + password login;** email is unique and reserved for notifications.
-- **Comments** are allowed only on *published* posts. The post's author is
-  auto-approved; everyone else starts `pending`. The public sees only
-  `approved` comments; the author sees all statuses.
-- **Deletion** is restricted to drafts; published content is archived (soft
-  retire) rather than destroyed.
+- **Anyone registered can author** — no separate "author" role; ownership is
+  enforced per-post.
+- **Login by username or email**; email is unique.
+- **Comments** are allowed only on *published* posts; the post author is
+  auto-approved, everyone else starts `pending`; the public sees only `approved`,
+  the author sees all statuses.
+- **Deletion** is restricted to drafts; published/archived content is retired by
+  archiving, not destroyed.
 - **Self-subscription** is disallowed (DB check constraint + API guard).
-- **View counts are eventually consistent** — a cached detail response may show
-  a slightly stale count by design.
+- **View counts / comment-ranked feed are eventually consistent** — cached
+  responses (≤120 s) may lag a brand-new view or comment by design.
 - **Search** uses case-insensitive `icontains` across title/excerpt/content as a
-  pragmatic baseline (see next section).
-- Dev infra (Redis/Celery/Postgres) runs unauthenticated on a single node.
+  pragmatic baseline.
+- Dev infra (Postgres/Redis/Celery) runs unauthenticated on a single node; email
+  prints to the console unless SMTP is configured.
 
 ---
 
 ## How AI tools were used
 
-AI (an LLM coding assistant) was used throughout, in the way I'd use it on real
-work: to scaffold boilerplate fast and to rubber-duck design, while I owned the
-architecture and reviewed every line.
+AI was used throughout, the way it's used on real work: to move fast on
+boilerplate and generate UI, while the architecture, data flow, and every
+trade-off were owned and reviewed.
 
-- **AI-generated, then reviewed:** the repetitive scaffolding — `settings.py`,
-  Docker/Compose/entrypoint, model and schema boilerplate, the bulk of the
-  pytest suite, and the first drafts of the routers.
-- **Directed by me (the decisions that matter):** the service-layer split, the
-  versioned cache-invalidation scheme, doing notifications on
-  `transaction.on_commit` only on the real state transition, the idempotency
-  model, and the choice to hand-roll JWT rather than pull in DRF.
-- **Corrected AI output — concrete example:** the assistant first modeled
-  `read_time_minutes` as a Django Ninja schema *resolver*. That works when Ninja
-  serializes a model directly, but it broke once responses were cached: the
-  serialized dict round-tripped back through response validation, the resolver
-  didn't re-run, and 7 tests failed with `read_time_minutes Field required`. I
-  moved the computation to a plain `Post.read_time_minutes` **model property**,
-  which serializes identically on both the fresh and cached paths. The test
-  suite caught this before it shipped.
-- I also tightened a few AI defaults: switching the deprecated
-  `CheckConstraint(check=...)` to `condition=`, and only firing subscriber
-  notifications on the first publish rather than on every publish call.
+- **Backend — AI-scaffolded, human-directed.** The repetitive parts (settings,
+  Docker, model/schema/router boilerplate, the bulk of the pytest suite) were
+  AI-generated and reviewed. The decisions that matter — the service-layer split,
+  versioned cache invalidation, on-commit side effects, the idempotency model,
+  hand-rolled JWT, the analytics aggregation — were directed deliberately.
+- **Frontend — design-tool UI, then integrated.** The page components were
+  generated with a design/codegen tool and then **wired to the real API and
+  corrected**. Representative fixes that came out of that integration:
+  - `read_time` was first a Ninja schema *resolver* that silently dropped out of
+    the **cached** response path (7 failing tests) → moved to a `Post` model
+    property that serializes identically fresh or cached.
+  - the editor sent a **stale `category_id`** (the dropdown only changed the
+    name) → resolve the id from the selected category at save time.
+  - the SPA never refreshed an expired access token → added single-flight
+    **refresh-on-401**.
+  - RTK Query **cache-tag mismatches** meant new drafts/archives didn't appear
+    until a remount → aligned `providesTags` / `invalidatesTags`.
+  - generic "Synchronization Failure" toasts hid the server's real message →
+    surface `error.data.detail` via a shared `getApiErrorMessage` helper.
 
 ---
 
-## What I'd do differently / next, given more time
+## What I'd do differently / next
 
-1. **Real full-text search.** Replace `icontains` with a stored
-   `SearchVectorField` + GIN index (and `pg_trgm` for fuzzy/typo tolerance).
-   The query shape is already isolated in one place, so this is a contained
-   change.
-2. **Harden auth.** Move to asymmetric (RS256) keys, add refresh-token rotation
-   and a blacklist/logout path, and rate-limit the auth + write endpoints.
-3. **Finer-grained cache invalidation.** The global version bump is simple and
-   correct but invalidates more than strictly necessary; per-author/per-tag
-   namespaces would keep more of the cache warm under heavy writes.
-4. **Operational depth on webhooks.** A dead-letter queue and a delivery-attempt
-   log for failed webhooks, plus structured logging, request IDs, and metrics.
-5. **Build the React + TypeScript frontend** to make it usable end-to-end (out
-   of scope for this backend-only submission).
-```
+1. **Tighten the frontend TypeScript.** A few of the codegen-heavy pages still
+   carry framer-motion typing issues that don't affect the dev server but would
+   need cleanup before `npm run build` is green.
+2. **Real full-text search** — a stored `SearchVectorField` + GIN index (and
+   `pg_trgm` for fuzzy matching) instead of `icontains`; the query is isolated in
+   one place.
+3. **Harden auth** — asymmetric (RS256) keys, refresh-token rotation + a
+   blacklist/logout path, and rate-limiting on auth + write endpoints.
+4. **Finer-grained cache invalidation** — per-author/per-tag namespaces instead
+   of a single global version bump, to keep more of the cache warm under writes;
+   invalidate the posts list on comment changes so the comment-ranked feed is
+   instant.
+5. **Operational depth** — a dead-letter queue + delivery log for failed
+   webhooks, structured logging, request IDs, and metrics.

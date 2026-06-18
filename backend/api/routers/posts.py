@@ -38,14 +38,20 @@ def list_posts(
     category: str = None,
     tag: str = None,
     search: str = None,
+    sort: str = None,
     page: int = 1,
     page_size: int = 20,
 ):
-    """Public, cached list of published posts with filtering and search."""
+    """Public, cached list of published posts with filtering and search.
+
+    ``sort=comments`` ranks by most (approved) comments first; otherwise the
+    feed is newest-first.
+    """
     params = {
         "category": category,
         "tag": tag,
         "search": search,
+        "sort": sort,
         "page": page,
         "page_size": page_size,
     }
@@ -65,7 +71,10 @@ def list_posts(
             | Q(excerpt__icontains=search)
             | Q(content__icontains=search)
         )
-    qs = qs.order_by("-published_at", "-id")
+    if sort == "comments":
+        qs = qs.order_by("-comment_count", "-published_at", "-id")
+    else:
+        qs = qs.order_by("-published_at", "-id")
 
     result = paged_response(PostListItemOut, paginate(request, qs, page, page_size))
     cache.set(key, result, settings.CACHE_TTL_POST_LIST)
