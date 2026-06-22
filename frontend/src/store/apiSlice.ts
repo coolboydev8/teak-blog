@@ -53,6 +53,32 @@ const baseQueryWithReauth: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQue
   return result;
 };
 
+interface PostCategory {
+  id: number;
+  name: string;
+  slug: string;
+}
+
+export interface LibraryPost {
+  id: number;
+  slug: string;
+  title: string;
+  excerpt: string;
+  status: string;
+  published_at?: string;
+  created_at: string;
+  updated_at: string;
+  view_count: number;
+  comment_count: number;
+  read_time_minutes: number;
+  author: {
+    id: number;
+    username: string;
+    avatar?: string;
+  };
+  category?: PostCategory;
+}
+
 export const apiSlice = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithReauth,

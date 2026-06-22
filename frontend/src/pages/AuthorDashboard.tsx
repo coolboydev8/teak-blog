@@ -1,19 +1,24 @@
-import { Box, Typography, Avatar, Button, Skeleton, Stack, IconButton, InputBase } from '@mui/material';
+import { Box, Typography, Avatar, Button, Skeleton, Stack, IconButton, InputBase, Tooltip } from '@mui/material';
 import {
-  useGetMyPostsQuery,
   useGetMeQuery,
   useGetAnalyticsQuery,
   useGetActivityQuery,
   useGetCommentsQuery,
+  useGetPostBySlugQuery,
 } from '../store/apiSlice';
-import { LayoutDashboard, FileText, MessageSquare, BarChart2, Settings, Plus, ArrowUpRight, ArrowDownRight, TrendingUp, Send, Check, X, Award, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, FileText, MessageSquare, Plus, ArrowUpRight, ArrowDownRight, TrendingUp, Send, Award, ChevronDown } from 'lucide-react';
 import { format } from 'date-fns';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import { useMemo, useState, useEffect } from 'react';
 
-// Animation Variants matching Design's logic
+// ─── Design tokens ────────────────────────────────────────────────────────────
+const NT_BG = '#F8F8FF';
+const NT_TEXT = '#2A3439';
+const NT_ACCENT = '#3AA8C1';
+
+// ─── Animation Variants ───────────────────────────────────────────────────────
 const containerVariants: Variants = {
   hidden: { opacity: 0 },
   visible: {
@@ -45,14 +50,16 @@ const spineVariants: Variants = {
   visible: { scaleY: 1, transition: { duration: 1.5, ease: "easeInOut" } }
 };
 
+// ─── Components ───────────────────────────────────────────────────────────────
+
 const SpineDot = ({ color, ring }: { color: string; ring: string }) => (
-  <Box sx={{ position: 'absolute', left: '1.125rem', top: 4, width: 12, height: 12, bgcolor: '#F8F8FF', border: '2px solid', borderColor: color, borderRadius: '50%', zIndex: 1, boxShadow: `0 0 0 4px ${ring}` }} />
+  <Box sx={{ position: 'absolute', left: '1.125rem', top: 4, width: 12, height: 12, bgcolor: NT_BG, border: '2px solid', borderColor: color, borderRadius: '50%', zIndex: 1, boxShadow: `0 0 0 4px ${ring}` }} />
 );
 
 const TYPE_META: Record<string, { label: string; color: string; ring: string }> = {
-  publish: { label: 'Publish Event', color: '#3AA8C1', ring: 'rgba(58,168,193,0.1)' },
-  comment: { label: 'New Comment', color: '#2A3439', ring: 'rgba(42,52,57,0.05)' },
-  comment_approved: { label: 'New Comment Approved', color: '#2A3439', ring: 'rgba(42,52,57,0.05)' },
+  publish: { label: 'Publish Event', color: NT_ACCENT, ring: 'rgba(58,168,193,0.1)' },
+  comment: { label: 'New Comment', color: NT_TEXT, ring: 'rgba(42,52,57,0.05)' },
+  comment_approved: { label: 'New Comment Approved', color: NT_TEXT, ring: 'rgba(42,52,57,0.05)' },
   milestone: { label: 'Quarterly Milestone', color: '#10b981', ring: 'rgba(16,185,129,0.1)' },
   moderation: { label: 'Moderation Queue', color: '#f59e0b', ring: 'rgba(245,158,11,0.1)' },
 };
@@ -99,7 +106,7 @@ const ActivityCard = ({ ev }: { ev: any }) => {
                 <Box sx={{ display: 'inline-block', px: 1.5, py: 0.5, borderRadius: '4px', bgcolor: `${isMilestone ? '#10b981' : meta.color}1a`, mb: 1 }}>
                   <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.15em', color: isMilestone ? '#10b981' : meta.color }}>{meta.label}</Typography>
                 </Box>
-                <Typography sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 700, fontSize: isComment ? '0.9rem' : '1.15rem', letterSpacing: '-0.01em', color: '#2A3439' }}>
+                <Typography sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 700, fontSize: isComment ? '0.9rem' : '1.15rem', letterSpacing: '-0.01em', color: NT_TEXT }}>
                   {ev.title}
                   {isComment && <Box component="span" sx={{ fontSize: '0.75rem', color: 'rgba(42,52,57,0.4)', fontWeight: 500, ml: 1 }}>from {ev.metadata?.author_name || 'Sarah Miller'}</Box>}
                 </Typography>
@@ -114,7 +121,7 @@ const ActivityCard = ({ ev }: { ev: any }) => {
           {ev.body && (
             <Box sx={{ 
               pl: isComment ? 3 : 0, 
-              borderLeft: isComment ? '2px solid #3AA8C1' : 'none',
+              borderLeft: isComment ? `2px solid ${NT_ACCENT}` : 'none',
               mb: (slug || isComment) ? 3 : 0 
             }}>
               <Typography variant="body2" sx={{ opacity: 0.65, lineHeight: 1.7, fontSize: '0.9rem', fontStyle: isComment ? 'italic' : 'normal' }}>
@@ -127,20 +134,20 @@ const ActivityCard = ({ ev }: { ev: any }) => {
             <Box sx={{ display: 'flex', gap: 1.5 }}>
               <InputBase 
                 placeholder="Type quick reply..." 
-                sx={{ flex: 1, bgcolor: '#F8F8FF', borderRadius: '10px', px: 2, py: 1, fontSize: '0.8rem', border: '1px solid rgba(42,52,57,0.05)' }} 
+                sx={{ flex: 1, bgcolor: NT_BG, borderRadius: '10px', px: 2, py: 1, fontSize: '0.8rem', border: '1px solid rgba(42,52,57,0.05)' }} 
               />
-              <IconButton sx={{ bgcolor: '#2A3439', color: 'white', borderRadius: '10px', '&:hover': { bgcolor: '#3AA8C1' } }}>
+              <IconButton sx={{ bgcolor: NT_TEXT, color: 'white', borderRadius: '10px', '&:hover': { bgcolor: NT_ACCENT } }}>
                 <Send size={16} />
               </IconButton>
             </Box>
           )}
 
           {slug && !isComment && (
-            <Box component={RouterLink} to={`/posts/${slug}`} sx={{ fontSize: '0.75rem', fontWeight: 800, color: '#3AA8C1', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>View Live</Box>
+            <Box component={RouterLink} to={`/posts/${slug}`} sx={{ fontSize: '0.75rem', fontWeight: 800, color: NT_ACCENT, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>View Live</Box>
           )}
 
           {isMilestone && (
-            <Button variant="contained" size="small" sx={{ bgcolor: '#2A3439', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', py: 1, px: 2.5, borderRadius: '8px' }}>Generate Analysis</Button>
+            <Button variant="contained" size="small" sx={{ bgcolor: NT_TEXT, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', py: 1, px: 2.5, borderRadius: '8px' }}>Generate Analysis</Button>
           )}
         </Box>
       </Box>
@@ -150,15 +157,17 @@ const ActivityCard = ({ ev }: { ev: any }) => {
 
 const RightStatCard = ({ children, accent }: { children: React.ReactNode; accent?: boolean }) => (
   <motion.div variants={itemVariantsRight}>
-    <Box sx={{ bgcolor: 'white', borderRadius: '24px', p: 3, border: '1px solid rgba(42,52,57,0.02)', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', position: 'relative', overflow: 'hidden', ...(accent ? { borderLeft: '4px solid #3AA8C1' } : {}) }}>
+    <Box sx={{ bgcolor: 'white', borderRadius: '24px', p: 3, border: '1px solid rgba(42,52,57,0.02)', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', position: 'relative', overflow: 'hidden', ...(accent ? { borderLeft: `4px solid ${NT_ACCENT}` } : {}) }}>
       {children}
     </Box>
   </motion.div>
 );
 
 export default function AuthorDashboard() {
+  const { slug } = useParams();
   const { data: me } = useGetMeQuery({});
-  const { data: postsData } = useGetMyPostsQuery({ status: 'published' }, { refetchOnMountOrArgChange: true });
+  const { data: postDetail, isLoading: isPostLoading } = useGetPostBySlugQuery(slug, { skip: !slug });
+  
   const { data: analytics } = useGetAnalyticsQuery({}, { refetchOnMountOrArgChange: true });
   const { data: activityData, isLoading: isActivityLoading } = useGetActivityQuery({}, { refetchOnMountOrArgChange: true });
 
@@ -166,21 +175,13 @@ export default function AuthorDashboard() {
   const [allComments, setAllComments] = useState<any[]>([]);
   const [displayLimit, setDisplayLimit] = useState(10);
 
-  // 1. Identify Top Post (Most comments, then latest)
-  const topPost = useMemo(() => {
-    if (!postsData?.results?.length) return null;
-    return [...postsData.results].sort((a, b) => {
-      if (b.comment_count !== a.comment_count) {
-        return b.comment_count - a.comment_count;
-      }
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    })[0];
-  }, [postsData]);
+  // 1. Identify Active Post
+  const activePost = postDetail;
 
-  // 2. Fetch comments for top post
+  // 2. Fetch comments for active post
   const { data: commentsData, isLoading: isCommentsLoading } = useGetCommentsQuery(
-    { slug: topPost?.slug || '', page: commentPage },
-    { skip: !topPost }
+    { slug: activePost?.slug || '', page: commentPage },
+    { skip: !activePost }
   );
 
   // Accumulate comments
@@ -194,12 +195,12 @@ export default function AuthorDashboard() {
     }
   }, [commentsData]);
 
-  // Reset if top post changes
+  // Reset if active post changes
   useEffect(() => {
     setAllComments([]);
     setCommentPage(1);
     setDisplayLimit(10);
-  }, [topPost?.id]);
+  }, [activePost?.id]);
 
   const handleLoadMore = () => {
     const nextLimit = displayLimit + 5;
@@ -209,24 +210,31 @@ export default function AuthorDashboard() {
     }
   };
 
+  const filteredActivity = useMemo(() => {
+    let items = activityData?.results || [];
+    if (slug) {
+      // Filter activity to only show events matching this post's slug
+      items = items.filter((ev: any) => ev.metadata?.slug === slug || ev.metadata?.post_slug === slug);
+    }
+    return items;
+  }, [activityData, slug]);
+
   const milestones = useMemo(() => {
-    return activityData?.results?.filter((ev: any) => ev.type === 'milestone') || [];
-  }, [activityData]);
+    return filteredActivity.filter((ev: any) => ev.type === 'milestone') || [];
+  }, [filteredActivity]);
 
   const fmt = (n?: number) => (n ?? 0).toLocaleString();
   const delta = (n?: number) => `${(n ?? 0) >= 0 ? '+' : ''}${n ?? 0}%`;
   const reach = analytics?.audience_reach ?? [];
 
   const navItems = [
-    { icon: LayoutDashboard, label: 'Dashboard', active: true },
-    { icon: FileText, label: 'Posts' },
+    { icon: LayoutDashboard, label: 'Overview', active: true },
+    { icon: FileText, label: 'Library' },
     { icon: MessageSquare, label: 'Comments' },
-    { icon: BarChart2, label: 'Analytics' },
-    { icon: Settings, label: 'Settings' },
   ];
 
   return (
-    <Box sx={{ bgcolor: '#F8F8FF', minHeight: 'calc(100vh - 80px)', display: 'grid', gridTemplateColumns: { xs: '1fr', md: '80px 1fr', lg: '80px 1fr 420px' } }}>
+    <Box sx={{ bgcolor: NT_BG, minHeight: 'calc(100vh - 80px)', display: 'grid', gridTemplateColumns: { xs: '1fr', md: '80px 1fr', lg: '80px 1fr 420px' } }}>
       {/* Left Icon Rail */}
       <Box
         component={motion.div}
@@ -249,28 +257,28 @@ export default function AuthorDashboard() {
         }}
       >
         {navItems.map(({ icon: Icon, label, active }) => (
-          <Box
-            key={label}
-            component={motion.div}
-            variants={itemVariantsLeft}
-            title={label}
-            sx={{
-              width: 48,
-              height: 48,
-              borderRadius: '12px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              bgcolor: active ? '#3AA8C1' : 'transparent',
-              color: active ? 'white' : 'rgba(42,52,57,0.35)',
-              boxShadow: active ? '0 8px 24px rgba(58,168,193,0.3)' : 'none',
-              transition: 'all 0.2s',
-              '&:hover': active ? {} : { bgcolor: '#F8F8FF', color: '#3AA8C1', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }
-            }}
-          >
-            <Icon size={24} strokeWidth={2.5} />
-          </Box>
+          <Tooltip key={label} title={label} placement="right">
+            <Box
+              component={motion.div}
+              variants={itemVariantsLeft}
+              sx={{
+                width: 48,
+                height: 48,
+                borderRadius: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                bgcolor: active ? NT_ACCENT : 'transparent',
+                color: active ? 'white' : 'rgba(42,52,57,0.35)',
+                boxShadow: active ? `0 8px 24px rgba(58,168,193,0.3)` : 'none',
+                transition: 'all 0.2s',
+                '&:hover': active ? {} : { bgcolor: NT_BG, color: NT_ACCENT, boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }
+              }}
+            >
+              <Icon size={24} strokeWidth={2.5} />
+            </Box>
+          </Tooltip>
         ))}
         <Box component={motion.div} variants={itemVariantsLeft} sx={{ mt: 'auto' }}>
           <Avatar
@@ -289,11 +297,11 @@ export default function AuthorDashboard() {
           style={{ marginBottom: '48px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}
         >
           <Box>
-            <Typography variant="h3" sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 900, letterSpacing: '-0.04em', mb: 1, color: '#2A3439' }}>
-              Author Dashboard
+            <Typography variant="h3" sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 900, letterSpacing: '-0.04em', mb: 1, color: NT_TEXT }}>
+              {slug ? 'Performance Analysis' : 'Author Dashboard'}
             </Typography>
             <Typography variant="body1" sx={{ opacity: 0.5, fontWeight: 500 }}>
-              Welcome back, {me?.username || 'Erik'}. Here is your editorial pulse for today.
+              {slug ? (isPostLoading ? 'Synchronizing metrics...' : `Protocol: ${activePost?.title}`) : `Welcome back, ${me?.username || 'Erik'}. Here is your editorial pulse for today.`}
             </Typography>
           </Box>
           <Typography sx={{ fontSize: '0.65rem', fontWeight: 800, color: 'rgba(42,52,57,0.3)', textTransform: 'uppercase', letterSpacing: '0.25em', display: { xs: 'none', md: 'block' } }}>
@@ -302,7 +310,7 @@ export default function AuthorDashboard() {
         </motion.header>
 
         <Typography sx={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.35em', color: 'rgba(42,52,57,0.25)', mb: 4 }}>
-          System Activity // Proportional Spine
+          {slug ? 'Post Activity // Focused Spine' : 'System Activity // Proportional Spine'}
         </Typography>
 
         {/* Timeline (real activity feed) */}
@@ -324,7 +332,7 @@ export default function AuthorDashboard() {
               top: 0,
               bottom: 0,
               width: 2,
-              background: 'linear-gradient(to bottom, #2A3439 0%, rgba(42, 52, 57, 0.05) 100%)',
+              background: `linear-gradient(to bottom, ${NT_TEXT} 0%, rgba(42, 52, 57, 0.05) 100%)`,
               transformOrigin: 'top',
               zIndex: 0,
               opacity: 0.2
@@ -343,16 +351,16 @@ export default function AuthorDashboard() {
                 {/* 4. Milestones placed at the top */}
                 {milestones.map((ev: any) => <ActivityCard key={ev.id} ev={ev} />)}
 
-                {/* 1. The Top Post (One post with most comments) */}
-                {topPost && (
+                {/* 1. The Active Post (Main subject) */}
+                {activePost && (
                   <ActivityCard 
                     ev={{
-                      id: `top-post-${topPost.id}`,
+                      id: `active-post-${activePost.id}`,
                       type: 'publish',
-                      title: topPost.title,
-                      body: topPost.excerpt,
-                      created_at: topPost.created_at,
-                      metadata: { slug: topPost.slug }
+                      title: activePost.title,
+                      body: activePost.excerpt,
+                      created_at: activePost.created_at,
+                      metadata: { slug: activePost.slug }
                     }} 
                   />
                 )}
@@ -389,7 +397,7 @@ export default function AuthorDashboard() {
                         color: 'rgba(42,52,57,0.4)',
                         textTransform: 'uppercase',
                         letterSpacing: '0.15em',
-                        '&:hover': { color: '#3AA8C1', bgcolor: 'transparent' }
+                        '&:hover': { color: NT_ACCENT, bgcolor: 'transparent' }
                       }}
                     >
                       {isCommentsLoading ? 'Synchronizing...' : 'Load More Protocol'}
@@ -397,7 +405,7 @@ export default function AuthorDashboard() {
                   </Box>
                 )}
                 
-                {!topPost && !milestones.length && (
+                {!activePost && !milestones.length && (
                   <Box sx={{ pl: '4rem', py: 12, opacity: 0.35, textAlign: 'center' }}>
                     <Typography sx={{ fontStyle: 'italic', fontSize: '1.1rem' }}>No activity yet — publish a post to get started.</Typography>
                   </Box>
@@ -407,34 +415,36 @@ export default function AuthorDashboard() {
           </AnimatePresence>
         </Box>
 
-        <Box sx={{ pl: '4rem', pt: 4, display: 'flex', justifyContent: 'center' }}>
-          <Button
-            variant="contained"
-            component={RouterLink}
-            to="/editor"
-            startIcon={<Plus size={20} />}
-            sx={{
-              borderRadius: '999px',
-              py: 2,
-              px: 6,
-              bgcolor: '#3AA8C1',
-              fontWeight: 800,
-              textTransform: 'uppercase',
-              letterSpacing: '0.15em',
-              fontSize: '0.75rem',
-              boxShadow: '0 8px 24px rgba(58,168,193,0.25)',
-              transition: 'all 0.4s',
-              position: 'relative',
-              overflow: 'hidden',
-              '&::after': { content: '""', position: 'absolute', inset: 0, bgcolor: '#2A3439', opacity: 0, transition: 'opacity 0.3s' },
-              '&:hover::after': { opacity: 1 },
-              '&:hover': { transform: 'translateY(-3px)', boxShadow: '0 12px 32px rgba(42,52,57,0.2)' },
-              '& span': { position: 'relative', zIndex: 1 }
-            }}
-          >
-            <span>New Post</span>
-          </Button>
-        </Box>
+        {!slug && (
+          <Box sx={{ pl: '4rem', pt: 4, display: 'flex', justifyContent: 'center' }}>
+            <Button
+              variant="contained"
+              component={RouterLink}
+              to="/editor"
+              startIcon={<Plus size={20} />}
+              sx={{
+                borderRadius: '999px',
+                py: 2,
+                px: 6,
+                bgcolor: NT_ACCENT,
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.15em',
+                fontSize: '0.75rem',
+                boxShadow: `0 8px 24px ${NT_ACCENT}40`,
+                transition: 'all 0.4s',
+                position: 'relative',
+                overflow: 'hidden',
+                '&::after': { content: '""', position: 'absolute', inset: 0, bgcolor: NT_TEXT, opacity: 0, transition: 'opacity 0.3s' },
+                '&:hover::after': { opacity: 1 },
+                '&:hover': { transform: 'translateY(-3px)', boxShadow: '0 12px 32px rgba(42,52,57,0.2)' },
+                '& span': { position: 'relative', zIndex: 1 }
+              }}
+            >
+              <span>New Post</span>
+            </Button>
+          </Box>
+        )}
       </Box>
 
       {/* Right Sidebar */}
@@ -463,16 +473,16 @@ export default function AuthorDashboard() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, mb: 3 }}>
             <Avatar
               src={me?.avatar || `https://i.pravatar.cc/100?u=${me?.username || 'user'}`}
-              sx={{ width: 56, height: 56, border: '3px solid white', boxShadow: '0 0 0 2px #3AA8C1, 0 8px 20px rgba(0,0,0,0.1)' }}
+              sx={{ width: 56, height: 56, border: '3px solid white', boxShadow: `0 0 0 2px ${NT_ACCENT}, 0 8px 20px rgba(0,0,0,0.1)` }}
             />
             <Box>
-              <Typography sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 800, fontSize: '1rem', color: '#2A3439' }}>{me?.username || ''}</Typography>
+              <Typography sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 800, fontSize: '1rem', color: NT_TEXT }}>{me?.username || ''}</Typography>
               <Typography sx={{ fontSize: '0.75rem', opacity: 0.45, fontWeight: 500, fontStyle: 'italic' }}>{me?.title || 'Author'}</Typography>
             </Box>
           </Box>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-            {[{ label: 'Articles', value: fmt(postsData?.count) }, { label: 'Trust', value: analytics?.trust_score ?? '—' }].map((s) => (
-              <Box key={s.label} sx={{ p: 2, bgcolor: '#F8F8FF', borderRadius: '12px', textAlign: 'center', border: '1px solid rgba(42,52,57,0.03)' }}>
+            {[{ label: 'Rank', value: '#04' }, { label: 'Trust', value: analytics?.trust_score ?? '—' }].map((s) => (
+              <Box key={s.label} sx={{ p: 2, bgcolor: NT_BG, borderRadius: '12px', textAlign: 'center', border: '1px solid rgba(42,52,57,0.03)' }}>
                 <Typography sx={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.2em', opacity: 0.3, mb: 0.5 }}>{s.label}</Typography>
                 <Typography sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 800, fontSize: '1.25rem' }}>{s.value}</Typography>
               </Box>
@@ -483,25 +493,36 @@ export default function AuthorDashboard() {
         {/* Performance */}
         <RightStatCard accent>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 4 }}>
-            <Typography sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 800, fontSize: '0.9rem', color: '#2A3439' }}>Performance</Typography>
-            <TrendingUp size={18} color="#3AA8C1" />
+            <Typography sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 800, fontSize: '0.9rem', color: NT_TEXT }}>Post Performance</Typography>
+            <TrendingUp size={18} color={NT_ACCENT} />
           </Box>
           <Stack spacing={4}>
             {[
-              { label: 'Total Views', value: fmt(analytics?.total_views), trendValue: analytics?.views_delta_pct ?? 0 },
-              { label: 'Subscribers', value: fmt(analytics?.subscriber_count), trendValue: analytics?.subscribers_delta_pct ?? 0 },
+              { 
+                label: 'Total Views', 
+                value: fmt(activePost?.view_count), 
+                trendValue: 0 
+              },
+              { 
+                label: 'Engagement', 
+                value: `${activePost?.comment_count || 0}`, 
+                trendValue: 0 
+              },
             ].map((s) => {
               const up = s.trendValue >= 0;
+              const hasTrend = s.trendValue !== 0;
               return (
                 <Box key={s.label} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                   <Box>
                     <Typography sx={{ fontSize: '0.7rem', fontWeight: 800, opacity: 0.3, textTransform: 'uppercase', letterSpacing: '0.2em', mb: 0.5 }}>{s.label}</Typography>
-                    <Typography sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 900, fontSize: '1.75rem', letterSpacing: '-0.04em', color: '#2A3439' }}>{s.value}</Typography>
+                    <Typography sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 900, fontSize: '1.75rem', letterSpacing: '-0.04em', color: NT_TEXT }}>{s.value}</Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: up ? '#10b981' : '#f43f5e', pb: 0.5 }}>
-                    {up ? <ArrowUpRight size={14} strokeWidth={3} /> : <ArrowDownRight size={14} strokeWidth={3} />}
-                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 800 }}>{delta(s.trendValue)}</Typography>
-                  </Box>
+                  {hasTrend && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: up ? '#10b981' : '#f43f5e', pb: 0.5 }}>
+                      {up ? <ArrowUpRight size={14} strokeWidth={3} /> : <ArrowDownRight size={14} strokeWidth={3} />}
+                      <Typography sx={{ fontSize: '0.75rem', fontWeight: 800 }}>{delta(s.trendValue)}</Typography>
+                    </Box>
+                  )}
                 </Box>
               );
             })}
@@ -527,7 +548,7 @@ export default function AuthorDashboard() {
                     <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: 'rgba(42,52,57,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {r.label}
                     </Typography>
-                    <Typography sx={{ fontSize: '0.8rem', fontWeight: 800, color: '#2A3439', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                    <Typography sx={{ fontSize: '0.8rem', fontWeight: 800, color: NT_TEXT, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
                       {r.pct}%
                     </Typography>
                   </Box>
@@ -537,7 +558,7 @@ export default function AuthorDashboard() {
                       whileInView={{ width: `${r.pct}%` }}
                       viewport={{ once: true }}
                       transition={{ duration: 1, ease: 'circOut', delay: i * 0.08 }}
-                      style={{ height: '100%', borderRadius: '999px', background: 'linear-gradient(90deg, #3AA8C1, #5fbcd1)' }}
+                      style={{ height: '100%', borderRadius: '999px', background: `linear-gradient(90deg, ${NT_ACCENT}, #5fbcd1)` }}
                     />
                   </Box>
                 </Box>
@@ -550,21 +571,13 @@ export default function AuthorDashboard() {
         <Box
           component={motion.div}
           variants={itemVariantsRight}
-          sx={{ bgcolor: '#2A3439', borderRadius: '24px', p: 4, color: 'white', position: 'relative', overflow: 'hidden', boxShadow: '0 12px 32px rgba(42,52,57,0.3)', mt: 'auto' }}
+          sx={{ bgcolor: NT_TEXT, borderRadius: '24px', p: 4, color: 'white', position: 'relative', overflow: 'hidden', boxShadow: '0 12px 32px rgba(42,52,57,0.3)', mt: 'auto' }}
         >
           <TrendingUp size={80} style={{ position: 'absolute', right: -12, bottom: -12, opacity: 0.1 }} />
           <Typography sx={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.3em', opacity: 0.5, mb: 2, fontFamily: '"Inter", sans-serif' }}>Editorial Insight</Typography>
-          <Typography sx={{ fontSize: '0.85rem', lineHeight: 1.7, opacity: 0.9, mb: 3, fontWeight: 500 }}>
-            Users are engaging with "Read Time" badges 40% more frequently this week. Consider optimizing metadata.
+          <Typography sx={{ fontSize: '0.85rem', lineHeight: 1.7, opacity: 0.9, mb: 0, fontWeight: 500 }}>
+            {slug ? 'Engagement for this post is outpacing global benchmarks by 12%. Maintain metadata rigor.' : 'Users are engaging with "Read Time" badges 40% more frequently this week. Consider optimizing metadata.'}
           </Typography>
-          <Button
-            fullWidth
-            component={RouterLink}
-            to="/management"
-            sx={{ bgcolor: 'white', color: '#2A3439', borderRadius: '12px', fontWeight: 800, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.15em', py: 1.5, '&:hover': { bgcolor: '#3AA8C1', color: 'white' } }}
-          >
-            Open Moderation
-          </Button>
         </Box>
       </Box>
     </Box>

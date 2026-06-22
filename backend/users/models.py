@@ -16,7 +16,9 @@ class User(AbstractUser):
     email = models.EmailField(unique=True)
 
     bio = models.TextField(blank=True)
-    avatar = models.URLField(blank=True)
+    # Holds either a hosted URL or a self-contained data URL (base64 upload),
+    # so it must not be length-capped like URLField (max_length=200).
+    avatar = models.TextField(blank=True)
     website = models.URLField(blank=True)
     # Editorial profile shown on author surfaces (e.g. "Lead Technical Writer",
     # domain "Distributed Architecture").

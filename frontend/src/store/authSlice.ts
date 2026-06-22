@@ -29,6 +29,11 @@ const authSlice = createSlice({
       localStorage.setItem('token', access);
       localStorage.setItem('refreshToken', refresh);
     },
+    setUser: (state, action: PayloadAction<any>) => {
+      // Sync just the cached user (e.g. after a profile edit) without touching tokens.
+      state.user = action.payload;
+      localStorage.setItem('user', JSON.stringify(action.payload));
+    },
     logOut: (state) => {
       state.user = null;
       state.token = null;
@@ -40,5 +45,5 @@ const authSlice = createSlice({
   },
 });
 
-export const { setCredentials, logOut } = authSlice.actions;
+export const { setCredentials, setUser, logOut } = authSlice.actions;
 export default authSlice.reducer;

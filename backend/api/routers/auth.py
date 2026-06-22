@@ -137,7 +137,33 @@ def me(request):
 @router.patch("/me", response=UserOut)
 def update_me(request, data: ProfileUpdateIn):
     user = request.auth
-    for field, value in data.dict(exclude_unset=True).items():
+    payload = data.dict(exclude_unset=True)
+
+    # --- Password change (handled before generic fields so we never setattr a
+    # raw password onto the model, which would bypass hashing). ---
+    new_password = payload.pop("new_password", None)
+    current_password = payload.pop("current_password", None)
+    if new_password is not None:
+        if not current_password or not user.check_password(current_password):
+            raise HttpError(400, "Current password is incorrect.")
+        try:
+            validate_password(new_password, user=user)
+        except ValidationError as exc:
+            raise HttpError(422, " ".join(exc.messages))
+        user.set_password(new_password)
+
+    # --- Username change: enforce non-blank + uniqueness (the column is unique,
+    # so an unchecked save would surface as a 500 IntegrityError). ---
+    if "username" in payload:
+        username = (payload.pop("username") or "").strip()
+        if not username:
+            raise HttpError(422, "Username cannot be blank.")
+        if User.objects.filter(username=username).exclude(pk=user.pk).exists():
+            raise HttpError(409, "Username already taken.")
+        user.username = username
+
+    for field, value in payload.items():
         setattr(user, field, value)
+
     user.save()
     return user

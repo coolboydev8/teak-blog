@@ -54,11 +54,17 @@ class UserOut(Schema):
 
 
 class ProfileUpdateIn(Schema):
+    # max_length mirrors the model columns so an overlong value returns a clean
+    # 422 instead of a 500 (Postgres rejects varchar overflow at write time).
+    username: Optional[str] = Field(None, max_length=150)
     bio: Optional[str] = None
     avatar: Optional[str] = None
-    website: Optional[str] = None
-    title: Optional[str] = None
-    domain: Optional[str] = None
+    website: Optional[str] = Field(None, max_length=200)
+    title: Optional[str] = Field(None, max_length=120)
+    domain: Optional[str] = Field(None, max_length=120)
+    # Password change: both required together; verified against the stored hash.
+    current_password: Optional[str] = None
+    new_password: Optional[str] = None
 
 
 class RegisterOut(Schema):
