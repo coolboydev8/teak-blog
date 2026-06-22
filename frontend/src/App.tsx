@@ -254,7 +254,7 @@ const router = createBrowserRouter([
       { path: 'posts/:slug', element: <PostDetail /> },
       // Authenticated only
       { path: 'library', element: <RequireAuth><Library /></RequireAuth> },
-      { path: 'dashboard/:slug', element: <RequireAuth><AuthorDashboard /></RequireAuth> },
+      { path: 'dashboard/:id', element: <RequireAuth><AuthorDashboard /></RequireAuth> },
       { path: 'subscriptions', element: <RequireAuth><Subscriptions /></RequireAuth> },
       { path: 'settings/profile', element: <RequireAuth><EditProfile /></RequireAuth> },
     ],

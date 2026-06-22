@@ -91,6 +91,23 @@ def create_post(request, data: PostCreateIn):
     return 201, Post.objects.with_related().get(pk=post.pk)
 
 
+@router.get("/id/{post_id}", response=PostDetailOut, auth=None)
+def get_post_by_id(request, post_id: int):
+    """Post detail by primary key — used by the author dashboard's focused view.
+
+    Mirrors get_post's visibility rules (the owning author may view their own
+    unpublished post) but skips read-side caching and the view-count bump, since
+    this backs an analytics surface rather than a reader page. Declared before
+    the ``/{slug}`` route so ``/id/<int>`` is never swallowed by the slug match.
+    """
+    post = get_object_or_404(Post.objects.with_related(), pk=post_id)
+    if post.status != Post.Status.PUBLISHED:
+        user = get_optional_user(request)
+        if user is None or post.author_id != user.id:
+            raise HttpError(404, "Post not found.")
+    return post
+
+
 @router.get("/{slug}", response=PostDetailOut, auth=None)
 def get_post(request, slug: str):
     """Public post detail. Cached for published posts; bumps view count async."""
