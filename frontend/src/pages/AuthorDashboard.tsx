@@ -4,7 +4,7 @@ import {
   useGetAnalyticsQuery,
   useGetActivityQuery,
   useGetCommentsQuery,
-  useGetPostBySlugQuery,
+  useGetPostByIdQuery,
 } from '../store/apiSlice';
 import { LayoutDashboard, FileText, MessageSquare, Plus, ArrowUpRight, ArrowDownRight, TrendingUp, Send, Award, ChevronDown } from 'lucide-react';
 import { format } from 'date-fns';
@@ -164,9 +164,9 @@ const RightStatCard = ({ children, accent }: { children: React.ReactNode; accent
 );
 
 export default function AuthorDashboard() {
-  const { slug } = useParams();
+  const { id } = useParams();
   const { data: me } = useGetMeQuery({});
-  const { data: postDetail, isLoading: isPostLoading } = useGetPostBySlugQuery(slug, { skip: !slug });
+  const { data: postDetail, isLoading: isPostLoading } = useGetPostByIdQuery(id, { skip: !id });
   
   const { data: analytics } = useGetAnalyticsQuery({}, { refetchOnMountOrArgChange: true });
   const { data: activityData, isLoading: isActivityLoading } = useGetActivityQuery({}, { refetchOnMountOrArgChange: true });
@@ -212,12 +212,16 @@ export default function AuthorDashboard() {
 
   const filteredActivity = useMemo(() => {
     let items = activityData?.results || [];
-    if (slug) {
-      // Filter activity to only show events matching this post's slug
-      items = items.filter((ev: any) => ev.metadata?.slug === slug || ev.metadata?.post_slug === slug);
+    if (id) {
+      // Focused on one post: the route carries the post id, but the activity
+      // feed keys events by slug — so match against the loaded post's slug.
+      const postSlug = activePost?.slug;
+      items = postSlug
+        ? items.filter((ev: any) => ev.metadata?.slug === postSlug || ev.metadata?.post_slug === postSlug)
+        : [];
     }
     return items;
-  }, [activityData, slug]);
+  }, [activityData, id, activePost?.slug]);
 
   const milestones = useMemo(() => {
     return filteredActivity.filter((ev: any) => ev.type === 'milestone') || [];
@@ -298,10 +302,10 @@ export default function AuthorDashboard() {
         >
           <Box>
             <Typography variant="h3" sx={{ fontFamily: '"Inter", sans-serif', fontWeight: 900, letterSpacing: '-0.04em', mb: 1, color: NT_TEXT }}>
-              {slug ? 'Performance Analysis' : 'Author Dashboard'}
+              {id ? 'Performance Analysis' : 'Author Dashboard'}
             </Typography>
             <Typography variant="body1" sx={{ opacity: 0.5, fontWeight: 500 }}>
-              {slug ? (isPostLoading ? 'Synchronizing metrics...' : `Protocol: ${activePost?.title}`) : `Welcome back, ${me?.username || 'Erik'}. Here is your editorial pulse for today.`}
+              {id ? (isPostLoading ? 'Synchronizing metrics...' : `Protocol: ${activePost?.title}`) : `Welcome back, ${me?.username || 'Erik'}. Here is your editorial pulse for today.`}
             </Typography>
           </Box>
           <Typography sx={{ fontSize: '0.65rem', fontWeight: 800, color: 'rgba(42,52,57,0.3)', textTransform: 'uppercase', letterSpacing: '0.25em', display: { xs: 'none', md: 'block' } }}>
@@ -310,7 +314,7 @@ export default function AuthorDashboard() {
         </motion.header>
 
         <Typography sx={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.35em', color: 'rgba(42,52,57,0.25)', mb: 4 }}>
-          {slug ? 'Post Activity // Focused Spine' : 'System Activity // Proportional Spine'}
+          {id ? 'Post Activity // Focused Spine' : 'System Activity // Proportional Spine'}
         </Typography>
 
         {/* Timeline (real activity feed) */}
@@ -415,7 +419,7 @@ export default function AuthorDashboard() {
           </AnimatePresence>
         </Box>
 
-        {!slug && (
+        {!id && (
           <Box sx={{ pl: '4rem', pt: 4, display: 'flex', justifyContent: 'center' }}>
             <Button
               variant="contained"
@@ -576,7 +580,7 @@ export default function AuthorDashboard() {
           <TrendingUp size={80} style={{ position: 'absolute', right: -12, bottom: -12, opacity: 0.1 }} />
           <Typography sx={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.3em', opacity: 0.5, mb: 2, fontFamily: '"Inter", sans-serif' }}>Editorial Insight</Typography>
           <Typography sx={{ fontSize: '0.85rem', lineHeight: 1.7, opacity: 0.9, mb: 0, fontWeight: 500 }}>
-            {slug ? 'Engagement for this post is outpacing global benchmarks by 12%. Maintain metadata rigor.' : 'Users are engaging with "Read Time" badges 40% more frequently this week. Consider optimizing metadata.'}
+            {id ? 'Engagement for this post is outpacing global benchmarks by 12%. Maintain metadata rigor.' : 'Users are engaging with "Read Time" badges 40% more frequently this week. Consider optimizing metadata.'}
           </Typography>
         </Box>
       </Box>

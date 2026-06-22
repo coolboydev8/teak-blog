@@ -118,6 +118,10 @@ export const apiSlice = createApi({
       query: (slug) => `/posts/${slug}`,
       providesTags: (_result, _error, slug) => [{ type: 'Post', id: slug }],
     }),
+    getPostById: builder.query({
+      query: (id) => `/posts/id/${id}`,
+      providesTags: (result) => (result ? [{ type: 'Post', id: result.slug }] : []),
+    }),
     createPost: builder.mutation({
       query: (newPost) => ({ url: '/posts/', method: 'POST', body: newPost }),
       invalidatesTags: [{ type: 'Post', id: 'LIST' }],
@@ -243,6 +247,7 @@ export const {
   useConfirmPasswordResetMutation,
   useGetPostsQuery,
   useGetPostBySlugQuery,
+  useGetPostByIdQuery,
   useCreatePostMutation,
   useUpdatePostMutation,
   usePublishPostMutation,

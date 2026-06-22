@@ -203,7 +203,7 @@ const MatrixRow = ({
           },
           '&:hover .row-actions': { opacity: 1, transform: 'translateX(0)' },
         }}
-        onClick={() => navigate(`/dashboard/${post.slug}`)}
+        onClick={() => navigate(`/dashboard/${post.id}`)}
       >
         {/* Article Title */}
         <Box sx={{ pr: 4, minWidth: 0 }}>
