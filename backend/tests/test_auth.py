@@ -58,6 +58,37 @@ def test_refresh_issues_new_access(api, make_user):
     assert "access" in resp.json()
 
 
+def test_access_token_capped_to_session_deadline(make_user):
+    """An access token never outlives the session ceiling passed by the refresh
+    endpoint — so a refresh near the end of the hour can't extend the session."""
+    from datetime import datetime, timedelta, timezone
+
+    from api.security import ACCESS, create_access_token, decode_token
+
+    user = make_user(username="ceiling", password="Str0ngPass!")
+    # Session ends in 5 minutes — shorter than the 30-minute access lifetime.
+    session_end = datetime.now(timezone.utc) + timedelta(minutes=5)
+    token = create_access_token(user, not_after=session_end)
+    payload = decode_token(token, expected_type=ACCESS)
+    assert payload["exp"] <= int(session_end.timestamp())
+
+
+def test_refresh_does_not_extend_session(api, make_user):
+    """Refreshing renews the access token but the new one is bounded by the
+    refresh token's (session) expiry, not pushed 30 minutes further out."""
+    from api.security import ACCESS, REFRESH, decode_token
+
+    make_user(username="norenew", password="Str0ngPass!")
+    tokens = api.post(
+        "/api/auth/login", {"username": "norenew", "password": "Str0ngPass!"}
+    ).json()
+    refresh_exp = decode_token(tokens["refresh"], expected_type=REFRESH)["exp"]
+    access = api.post(
+        "/api/auth/token/refresh", {"refresh": tokens["refresh"]}
+    ).json()["access"]
+    assert decode_token(access, expected_type=ACCESS)["exp"] <= refresh_exp
+
+
 def test_protected_endpoint_requires_auth(api):
     assert api.get("/api/auth/me").status_code == 401
     assert api.get("/api/me/posts").status_code == 401

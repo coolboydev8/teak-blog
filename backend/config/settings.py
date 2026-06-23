@@ -8,6 +8,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -31,6 +32,12 @@ if env_file.exists():
 SECRET_KEY = env("SECRET_KEY")
 DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
+
+# Fail fast: never run a production process on the shared dev secret.
+if not DEBUG and SECRET_KEY == "dev-insecure-secret-key-change-me":
+    raise ImproperlyConfigured(
+        "SECRET_KEY must be set to a unique secret value when DEBUG is False."
+    )
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -79,6 +86,17 @@ ASGI_APPLICATION = "config.asgi.application"
 DATABASES = {"default": env.db("DATABASE_URL")}
 DATABASES["default"]["ATOMIC_REQUESTS"] = False
 DATABASES["default"].setdefault("CONN_MAX_AGE", 60)
+# Revalidate persistent connections before reuse (avoids handing a request a
+# dead connection after a DB restart / pooler recycle).
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+# Bound connection setup and any single statement so a slow/hung query can't pin
+# a connection and cascade. statement_timeout is generous (30s) and env-tunable;
+# raise DB_STATEMENT_TIMEOUT_MS if a heavy migration ever needs longer.
+_db_options = DATABASES["default"].setdefault("OPTIONS", {})
+_db_options.setdefault("connect_timeout", 10)
+_db_statement_timeout = env.int("DB_STATEMENT_TIMEOUT_MS", default=30000)
+if _db_statement_timeout > 0:
+    _db_options["options"] = f"-c statement_timeout={_db_statement_timeout}"
 
 # --- Auth ---------------------------------------------------------------
 AUTH_USER_MODEL = "users.User"
@@ -93,17 +111,29 @@ AUTH_PASSWORD_VALIDATORS = [
 # --- JWT (hand-rolled, see api/security.py) -----------------------------
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_LIFETIME = timedelta(minutes=env.int("JWT_ACCESS_MINUTES", default=30))
-JWT_REFRESH_TOKEN_LIFETIME = timedelta(days=env.int("JWT_REFRESH_DAYS", default=7))
+# The refresh token is the ABSOLUTE maximum session length (an active session can
+# be renewed up to this long). The 1-hour *idle* timeout is enforced client-side
+# (it slides on activity), so this only needs to be long enough not to cut off an
+# active user mid-session. Default 24 hours.
+JWT_REFRESH_TOKEN_LIFETIME = timedelta(hours=env.int("JWT_SESSION_HOURS", default=24))
 
 # --- Caching (Redis) ----------------------------------------------------
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": env("REDIS_URL"),
-        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            # Degrade gracefully if Redis is unreachable: reads become a cache
+            # miss served from Postgres and writes become no-ops, instead of
+            # 500-ing every cached endpoint. The source of truth stays available.
+            "IGNORE_EXCEPTIONS": True,
+        },
         "KEY_PREFIX": "blog",
     }
 }
+# Log (don't swallow silently) the cache failures that IGNORE_EXCEPTIONS hides.
+DJANGO_REDIS_LOG_IGNORED_EXCEPTIONS = True
 CACHE_TTL_POST_LIST = env("CACHE_TTL_POST_LIST")
 CACHE_TTL_POST_DETAIL = env("CACHE_TTL_POST_DETAIL")
 
@@ -116,6 +146,11 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_DEFAULT_QUEUE = "default"
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+# Reliability guards: kill runaway tasks and stop task results from bloating
+# Redis. (All current tasks finish in well under a minute.)
+CELERY_TASK_SOFT_TIME_LIMIT = env.int("CELERY_TASK_SOFT_TIME_LIMIT", default=100)
+CELERY_TASK_TIME_LIMIT = env.int("CELERY_TASK_TIME_LIMIT", default=120)
+CELERY_RESULT_EXPIRES = env.int("CELERY_RESULT_EXPIRES", default=3600)
 
 # --- Email --------------------------------------------------------------
 # Set EMAIL_HOST (+ user/password) to deliver real mail via SMTP; otherwise
@@ -151,10 +186,17 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Quiet, structured-ish logging suitable for containers.
+# Timestamped, leveled logging suitable for container log aggregation.
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "formatters": {
+        "default": {
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "default"},
+    },
     "root": {"handlers": ["console"], "level": env("LOG_LEVEL", default="INFO")},
 }

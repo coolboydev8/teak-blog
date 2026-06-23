@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
@@ -76,7 +78,10 @@ def refresh(request, data: RefreshIn):
         user = User.objects.get(id=payload["sub"], is_active=True)
     except (TokenError, User.DoesNotExist):
         raise HttpError(401, "Invalid or expired refresh token.")
-    return {"access": create_access_token(user)}
+    # The refresh token's expiry is the session deadline; cap the new access
+    # token to it so no token can outlive the 1-hour session window.
+    session_exp = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+    return {"access": create_access_token(user, not_after=session_exp)}
 
 
 @router.post("/password/reset", response=PasswordResetRequestOut, auth=None)

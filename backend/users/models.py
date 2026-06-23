@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
@@ -12,6 +14,10 @@ class User(AbstractUser):
     retrofitting one later is painful, so we do it up front even though the
     extra profile fields are minimal.
     """
+
+    # Public, non-enumerable identifier used in URLs/API params. The integer PK
+    # stays internal (fast FK joins); this is what the outside world references.
+    uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
 
     email = models.EmailField(unique=True)
 

@@ -30,7 +30,7 @@ def test_duplicate_subscribe_is_idempotent(api, author, reader):
 def test_unsubscribe(api, author, reader):
     sub_id = api.auth(reader).post(
         "/api/subscriptions/", {"author_id": author.id}
-    ).json()["id"]
+    ).json()["uuid"]
     assert api.delete(f"/api/subscriptions/{sub_id}").status_code == 204
     assert Subscription.objects.count() == 0
 

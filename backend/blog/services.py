@@ -159,47 +159,70 @@ def update_post(*, post: Post, data: dict, editor) -> Post:
 
 @transaction.atomic
 def publish_post(*, post: Post) -> Post:
-    """Validate and transition a post to published, then fan out notifications."""
-    if post.status == Post.Status.ARCHIVED:
-        raise ServiceError("Archived posts cannot be published.", status=409)
+    """Transition a post to published and fan out notifications — *exactly once*.
+
+    Business invariant: only one actor may move a post from draft to published
+    and trigger the subscriber/webhook fan-out, even under two concurrent publish
+    requests (or a redelivered Celery job). A read-then-write
+    (``if status == DRAFT: save()``) does NOT enforce this — two transactions can
+    both read DRAFT and both notify. We instead *claim* the transition with a
+    single conditional UPDATE that only matches a row still in DRAFT; exactly one
+    caller gets ``claimed == 1`` and fires the side effects. (For a transition
+    that must mutate several related rows atomically we'd reach for
+    ``select_for_update()`` instead — here one conditional UPDATE is enough and
+    avoids holding a row lock.)
+
+    The fan-out is scheduled with ``transaction.on_commit`` so it never runs
+    against an uncommitted/rolled-back row — the publish→Celery race in which a
+    fast worker reads a row the producing transaction hasn't committed yet.
+    """
     if not post.content.strip():
         raise ServiceError("Cannot publish a post with empty content.", status=422)
+    if post.status == Post.Status.ARCHIVED:
+        raise ServiceError("Archived posts cannot be published.", status=409)
 
-    already_published = post.status == Post.Status.PUBLISHED
-    post.status = Post.Status.PUBLISHED
-    if post.published_at is None:
-        post.published_at = timezone.now()
-    post.save(update_fields=["status", "published_at", "updated_at"])
+    now = timezone.now()
+    claimed = (
+        Post.objects.filter(id=post.id, status=Post.Status.DRAFT).update(
+            status=Post.Status.PUBLISHED, published_at=now, updated_at=now
+        )
+    )
     invalidate_posts()
 
-    # Fire side effects only on the draft -> published transition, and only
-    # after the surrounding transaction commits (avoids notifying on rollback).
-    if not already_published:
-        from .activity import record_activity
-        from .models import ActivityEvent
-        from .tasks import emit_event, notify_subscribers
+    if not claimed:
+        # Lost the race / already published / no longer a draft: do NOT re-notify.
+        post.refresh_from_db()
+        return post
 
-        def _fire():
-            notify_subscribers.delay(post.id)
-            emit_event(
-                post.author_id,
-                "post.published",
-                {
-                    "event": "post.published",
-                    "post": {"id": post.id, "slug": post.slug, "title": post.title},
-                    "author": post.author.username,
-                },
-            )
-            record_activity(
-                post.author_id,
-                ActivityEvent.Type.PUBLISH,
-                post.title,
-                post.excerpt,
-                {"slug": post.slug},
-            )
+    # We are the sole winner of the transition — reflect it on the in-memory
+    # instance and fire the one-time fan-out after the transaction commits.
+    post.status = Post.Status.PUBLISHED
+    post.published_at = now
 
-        transaction.on_commit(_fire)
+    from .activity import record_activity
+    from .models import ActivityEvent
+    from .tasks import emit_event, notify_subscribers
 
+    def _fire():
+        notify_subscribers.delay(post.id)
+        emit_event(
+            post.author_id,
+            "post.published",
+            {
+                "event": "post.published",
+                "post": {"id": post.id, "slug": post.slug, "title": post.title},
+                "author": post.author.username,
+            },
+        )
+        record_activity(
+            post.author_id,
+            ActivityEvent.Type.PUBLISH,
+            post.title,
+            post.excerpt,
+            {"slug": post.slug},
+        )
+
+    transaction.on_commit(_fire)
     return post
 
 
@@ -207,6 +230,20 @@ def publish_post(*, post: Post) -> Post:
 def archive_post(*, post: Post) -> Post:
     post.status = Post.Status.ARCHIVED
     post.save(update_fields=["status", "updated_at"])
+    invalidate_posts()
+    return post
+
+
+@transaction.atomic
+def unpublish_post(*, post: Post) -> Post:
+    """Move a post back to draft, removing it from public listings.
+
+    The reverse of publish: clears ``published_at`` so a later re-publish stamps
+    a fresh date and a true draft never carries a publication time.
+    """
+    post.status = Post.Status.DRAFT
+    post.published_at = None
+    post.save(update_fields=["status", "published_at", "updated_at"])
     invalidate_posts()
     return post
 

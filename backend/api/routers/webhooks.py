@@ -1,3 +1,5 @@
+import uuid
+
 from django.shortcuts import get_object_or_404
 from ninja import Router
 from ninja.errors import HttpError
@@ -30,9 +32,9 @@ def create_webhook(request, data: WebhookCreateIn):
     return 201, hook
 
 
-@router.patch("/{int:webhook_id}", response=WebhookOut)
-def update_webhook(request, webhook_id: int, data: WebhookUpdateIn):
-    hook = get_object_or_404(Webhook, id=webhook_id, owner=request.auth)
+@router.patch("/{uuid:webhook_id}", response=WebhookOut)
+def update_webhook(request, webhook_id: uuid.UUID, data: WebhookUpdateIn):
+    hook = get_object_or_404(Webhook, uuid=webhook_id, owner=request.auth)
     payload = data.dict(exclude_unset=True)
     if "event" in payload and payload["event"] not in VALID_EVENTS:
         raise HttpError(422, f"event must be one of {sorted(VALID_EVENTS)}.")
@@ -45,8 +47,8 @@ def update_webhook(request, webhook_id: int, data: WebhookUpdateIn):
     return hook
 
 
-@router.delete("/{int:webhook_id}", response={204: None})
-def delete_webhook(request, webhook_id: int):
-    hook = get_object_or_404(Webhook, id=webhook_id, owner=request.auth)
+@router.delete("/{uuid:webhook_id}", response={204: None})
+def delete_webhook(request, webhook_id: uuid.UUID):
+    hook = get_object_or_404(Webhook, uuid=webhook_id, owner=request.auth)
     hook.delete()
     return 204, None

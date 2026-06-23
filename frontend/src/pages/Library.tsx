@@ -67,6 +67,7 @@ interface PostCategory {
 
 interface LibraryPost {
   id: number;
+  uuid: string;
   slug: string;
   title: string;
   excerpt: string;
@@ -203,7 +204,7 @@ const MatrixRow = ({
           },
           '&:hover .row-actions': { opacity: 1, transform: 'translateX(0)' },
         }}
-        onClick={() => navigate(`/dashboard/${post.id}`)}
+        onClick={() => navigate(`/dashboard/${post.uuid}`)}
       >
         {/* Article Title */}
         <Box sx={{ pr: 4, minWidth: 0 }}>
@@ -311,7 +312,7 @@ const MatrixRow = ({
             <IconButton
               size="small"
               component={RouterLink}
-              to={`/posts/${post.slug}`}
+              to={`/posts/${post.uuid}`}
               sx={{
                 width: 32, height: 32, borderRadius: '8px',
                 bgcolor: 'white', border: `1px solid ${NT_BORDER}`,

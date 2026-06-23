@@ -88,6 +88,19 @@ def test_archive_removes_from_public_list(api, author):
     assert api.client.get("/api/posts/").json()["count"] == 0
 
 
+def test_unpublish_reverts_to_draft_and_hides(api, author):
+    api.auth(author)
+    slug = _create_post(api).json()["slug"]
+    api.post(f"/api/posts/{slug}/publish")
+    assert api.client.get("/api/posts/").json()["count"] == 1  # public
+
+    resp = api.post(f"/api/posts/{slug}/unpublish")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "draft"
+    assert resp.json()["published_at"] is None
+    assert api.client.get("/api/posts/").json()["count"] == 0  # gone from public list
+
+
 def test_only_draft_posts_can_be_deleted(api, author):
     api.auth(author)
     slug = _create_post(api).json()["slug"]
@@ -116,7 +129,8 @@ def test_idempotency_key_prevents_duplicate(api, author):
 def test_list_filters_by_category_and_search(api, author):
     from blog.models import Category
 
-    cat = Category.objects.create(name="Engineering")
+    # "Engineering" is part of the seeded default taxonomy, so tolerate it.
+    cat, _ = Category.objects.get_or_create(name="Engineering")
     api.auth(author)
     slug = api.post(
         "/api/posts/",

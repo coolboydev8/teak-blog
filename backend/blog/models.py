@@ -1,8 +1,13 @@
 import math
+import uuid
 
 from django.conf import settings
 from django.db import models
 from django.utils.text import slugify
+
+# Public, non-enumerable identifier for URLs/API params. The integer PK stays
+# internal (fast FK joins); ``uuid`` is what the outside world references.
+PUBLIC_ID = dict(default=uuid.uuid4, editable=False, unique=True)
 
 
 class TimeStampedModel(models.Model):
@@ -14,6 +19,7 @@ class TimeStampedModel(models.Model):
 
 
 class Category(models.Model):
+    uuid = models.UUIDField(**PUBLIC_ID)
     name = models.CharField(max_length=100, unique=True)
     slug = models.SlugField(max_length=120, unique=True, blank=True)
 
@@ -31,6 +37,7 @@ class Category(models.Model):
 
 
 class Tag(models.Model):
+    uuid = models.UUIDField(**PUBLIC_ID)
     name = models.CharField(max_length=50, unique=True)
     slug = models.SlugField(max_length=60, unique=True, blank=True)
 
@@ -75,6 +82,7 @@ class Post(TimeStampedModel):
         PUBLISHED = "published", "Published"
         ARCHIVED = "archived", "Archived"
 
+    uuid = models.UUIDField(**PUBLIC_ID)
     title = models.CharField(max_length=200)
     slug = models.SlugField(max_length=220, unique=True)
     content = models.TextField()
@@ -117,6 +125,8 @@ class Post(TimeStampedModel):
             models.Index(fields=["status", "-published_at"]),
             # Author dashboard lists own posts newest-first.
             models.Index(fields=["author", "-created_at"]),
+            # /me/posts orders the author's posts by -updated_at.
+            models.Index(fields=["author", "-updated_at"], name="post_author_updated_idx"),
         ]
 
     @property
@@ -134,6 +144,7 @@ class Comment(TimeStampedModel):
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
 
+    uuid = models.UUIDField(**PUBLIC_ID)
     post = models.ForeignKey(
         Post,
         on_delete=models.CASCADE,
@@ -157,6 +168,8 @@ class Comment(TimeStampedModel):
         ordering = ["created_at"]
         indexes = [
             models.Index(fields=["post", "moderation_status"]),
+            # Comment list for a post is ordered by created_at.
+            models.Index(fields=["post", "created_at"], name="comment_post_created_idx"),
         ]
 
     def __str__(self) -> str:
@@ -180,6 +193,7 @@ class Subscription(models.Model):
         WEEKLY = "weekly", "Weekly"
         MONTHLY = "monthly", "Monthly"
 
+    uuid = models.UUIDField(**PUBLIC_ID)
     subscriber = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -218,6 +232,10 @@ class Subscription(models.Model):
                 name="no_self_subscription",
             ),
         ]
+        indexes = [
+            # notify_subscribers fans out over an author's active subscribers.
+            models.Index(fields=["author", "is_active"], name="sub_author_active_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.subscriber_id} -> {self.author_id}"
@@ -230,6 +248,7 @@ class PostRevision(models.Model):
     log) and a foundation for future diff/restore features.
     """
 
+    uuid = models.UUIDField(**PUBLIC_ID)
     post = models.ForeignKey(
         Post,
         on_delete=models.CASCADE,
@@ -280,6 +299,10 @@ class IdempotencyKey(models.Model):
                 fields=["user", "key"], name="unique_idempotency_key_per_user"
             ),
         ]
+        indexes = [
+            # Supports a periodic TTL sweep of stale idempotency keys.
+            models.Index(fields=["created_at"], name="idemkey_created_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.user_id}:{self.key}"
@@ -311,6 +334,7 @@ class ActivityEvent(models.Model):
         MILESTONE = "milestone", "Milestone"
         SUBSCRIBER = "subscriber", "New subscriber"
 
+    uuid = models.UUIDField(**PUBLIC_ID)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -325,7 +349,11 @@ class ActivityEvent(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["user", "-created_at"])]
+        indexes = [
+            models.Index(fields=["user", "-created_at"]),
+            # Unread-notification count: filter(user=, is_read=False).
+            models.Index(fields=["user", "is_read"], name="activity_user_read_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.type} for {self.user_id}"
@@ -349,6 +377,7 @@ class Webhook(models.Model):
         FUNCTIONAL = "functional", "Functional"
         FAILING = "failing", "Failing"
 
+    uuid = models.UUIDField(**PUBLIC_ID)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,

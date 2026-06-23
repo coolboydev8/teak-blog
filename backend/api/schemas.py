@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional, Union
+from uuid import UUID
 
 from ninja import Field, Schema
 
@@ -35,6 +36,7 @@ class AccessOut(Schema):
 # --- Users --------------------------------------------------------------
 class AuthorOut(Schema):
     id: int
+    uuid: UUID
     username: str
     avatar: str = ""
     title: str = ""
@@ -43,6 +45,7 @@ class AuthorOut(Schema):
 
 class UserOut(Schema):
     id: int
+    uuid: UUID
     username: str
     email: str
     bio: str = ""
@@ -96,12 +99,14 @@ class PasswordResetConfirmIn(Schema):
 # --- Taxonomy -----------------------------------------------------------
 class CategoryOut(Schema):
     id: int
+    uuid: UUID
     name: str
     slug: str
 
 
 class TagOut(Schema):
     id: int
+    uuid: UUID
     name: str
     slug: str
 
@@ -133,6 +138,7 @@ class PostUpdateIn(Schema):
 
 class PostListItemOut(Schema):
     id: int
+    uuid: UUID
     slug: str
     title: str
     excerpt: str
@@ -165,6 +171,7 @@ class CommentModerateIn(Schema):
 
 class CommentOut(Schema):
     id: int
+    uuid: UUID
     body: str
     moderation_status: str
     created_at: datetime
@@ -180,6 +187,7 @@ class CommentModerationOut(Schema):
     """Comment enriched with its parent post, for the author moderation queue."""
 
     id: int
+    uuid: UUID
     body: str
     moderation_status: str
     moderation_reason: str = ""
@@ -204,6 +212,7 @@ class SubscriptionUpdateIn(Schema):
 
 class SubscriptionOut(Schema):
     id: int
+    uuid: UUID
     notification_method: str
     frequency: str
     is_active: bool
@@ -228,6 +237,7 @@ class WebhookUpdateIn(Schema):
 
 class WebhookOut(Schema):
     id: int
+    uuid: UUID
     event: str
     url: str
     is_active: bool
@@ -246,6 +256,7 @@ class WebhookOut(Schema):
 # --- Misc ---------------------------------------------------------------
 class RevisionOut(Schema):
     id: int
+    uuid: UUID
     title: str
     created_at: datetime
     edited_by: Optional[AuthorOut]
@@ -284,6 +295,7 @@ class ReachBucket(Schema):
 
 class ActivityOut(Schema):
     id: int
+    uuid: UUID
     type: str
     title: str
     body: str = ""
@@ -314,4 +326,12 @@ class AnalyticsOut(Schema):
     views_delta_pct: float
     subscribers_delta_pct: float
     trust_score: float
+    # Per-signal point contributions to trust_score (transparency + extensibility).
+    trust_breakdown: dict[str, float] = {}
+    # Leaderboard position among authors (replaces the old hardcoded "#04").
+    rank: int = 0
+    rank_total: int = 0
+    rank_percentile: int = 0
+    # Weekly view "Momentum" trend; reuses the {label, pct} bucket shape.
     audience_reach: list[ReachBucket]
+    momentum_delta_pct: float = 0.0
