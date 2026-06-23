@@ -1,7 +1,7 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { BaseQueryFn, FetchArgs, FetchBaseQueryError } from '@reduxjs/toolkit/query';
 import type { RootState } from './index';
-import { setCredentials, logOut } from './authSlice';
+import { setAccessToken, logOut } from './authSlice';
 
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: '/api',
@@ -21,10 +21,17 @@ const baseQueryWithReauth: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQue
   api,
   extraOptions,
 ) => {
+  // Absolute session cap: never issue a request (or a refresh) past the deadline.
+  const { sessionExpiry } = (api.getState() as RootState).auth;
+  if (sessionExpiry && Date.now() > sessionExpiry) {
+    api.dispatch(logOut());
+    return { error: { status: 'CUSTOM_ERROR' as const, error: 'Session expired' } };
+  }
+
   let result = await rawBaseQuery(args, api, extraOptions);
 
   if (result.error?.status === 401) {
-    const { refreshToken, user } = (api.getState() as RootState).auth;
+    const { refreshToken } = (api.getState() as RootState).auth;
     if (!refreshToken) {
       api.dispatch(logOut());
       return result;
@@ -43,7 +50,8 @@ const baseQueryWithReauth: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQue
 
     const access = (refreshResult.data as { access?: string } | undefined)?.access;
     if (access) {
-      api.dispatch(setCredentials({ user, access, refresh: refreshToken }));
+      // Renew only the access token — this must not extend the session window.
+      api.dispatch(setAccessToken(access));
       result = await rawBaseQuery(args, api, extraOptions);
     } else {
       api.dispatch(logOut());
@@ -61,6 +69,7 @@ interface PostCategory {
 
 export interface LibraryPost {
   id: number;
+  uuid: string;
   slug: string;
   title: string;
   excerpt: string;
@@ -122,6 +131,12 @@ export const apiSlice = createApi({
       query: (id) => `/posts/id/${id}`,
       providesTags: (result) => (result ? [{ type: 'Post', id: result.slug }] : []),
     }),
+    getPostStats: builder.query({
+      // Fresh, no-view-bump detail for the author dashboard (vs getPostById,
+      // which is the public review page and counts every read).
+      query: (id) => `/posts/id/${id}/stats`,
+      providesTags: (result) => (result ? [{ type: 'Post', id: result.slug }] : []),
+    }),
     createPost: builder.mutation({
       query: (newPost) => ({ url: '/posts/', method: 'POST', body: newPost }),
       invalidatesTags: [{ type: 'Post', id: 'LIST' }],
@@ -137,6 +152,10 @@ export const apiSlice = createApi({
     archivePost: builder.mutation({
       query: (slug) => ({ url: `/posts/${slug}/archive`, method: 'POST' }),
       invalidatesTags: (_r, _e, slug) => [{ type: 'Post', id: slug }, { type: 'Post', id: 'LIST' }],
+    }),
+    unpublishPost: builder.mutation({
+      query: (slug) => ({ url: `/posts/${slug}/unpublish`, method: 'POST' }),
+      invalidatesTags: (_r, _e, slug) => [{ type: 'Post', id: slug }, { type: 'Post', id: 'LIST' }, 'Analytics'],
     }),
     deletePost: builder.mutation({
       query: (slug) => ({ url: `/posts/${slug}`, method: 'DELETE' }),
@@ -180,6 +199,10 @@ export const apiSlice = createApi({
         body: { status, reason },
       }),
       invalidatesTags: ['Comment', 'Activity'],
+    }),
+    updateComment: builder.mutation({
+      query: ({ id, body }) => ({ url: `/comments/${id}`, method: 'PUT', body: { body } }),
+      invalidatesTags: ['Comment'],
     }),
 
     // --- Subscriptions ---
@@ -248,10 +271,12 @@ export const {
   useGetPostsQuery,
   useGetPostBySlugQuery,
   useGetPostByIdQuery,
+  useGetPostStatsQuery,
   useCreatePostMutation,
   useUpdatePostMutation,
   usePublishPostMutation,
   useArchivePostMutation,
+  useUnpublishPostMutation,
   useDeletePostMutation,
   useGetMyPostsQuery,
   useGetCategoriesQuery,
@@ -260,6 +285,7 @@ export const {
   useCreateCommentMutation,
   useGetMyCommentsQuery,
   useModerateCommentMutation,
+  useUpdateCommentMutation,
   useGetMySubscriptionsQuery,
   useSubscribeMutation,
   useUpdateSubscriptionMutation,

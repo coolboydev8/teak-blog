@@ -3,7 +3,7 @@ import { useParams, Link as RouterLink } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import {
-  useGetPostBySlugQuery,
+  useGetPostByIdQuery,
   useGetCommentsQuery,
   useCreateCommentMutation,
   useSubscribeMutation,
@@ -12,6 +12,8 @@ import { Box, Container, Typography, Avatar, Chip, Stack, Skeleton, Button, Text
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
 import { ArrowLeft, Share2, Bookmark, ArrowRight, UserPlus, Send, ShieldCheck } from 'lucide-react';
+import { toast } from 'sonner';
+import { getApiErrorMessage } from '../store/apiError';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -77,9 +79,15 @@ const RadialChart = ({ minutes }: { minutes: number }) => {
 };
 
 export default function PostDetail() {
-  const { slug } = useParams();
-  const { data: post, isLoading } = useGetPostBySlugQuery(slug);
-  const { data: commentsData } = useGetCommentsQuery({ slug }, { skip: !slug });
+  const { id } = useParams();
+  const { data: post, isLoading } = useGetPostByIdQuery(id, { skip: !id });
+  // Comments are keyed by slug on the backend; source it from the loaded post.
+  const slug = post?.slug;
+  // Poll so comments stay in sync across users in near real-time.
+  const { data: commentsData } = useGetCommentsQuery(
+    { slug },
+    { skip: !slug, pollingInterval: 5000, skipPollingIfUnfocused: true },
+  );
   const [createComment, { isLoading: posting }] = useCreateCommentMutation();
   const [subscribe, { isSuccess: subscribed }] = useSubscribeMutation();
   const token = useSelector((s: RootState) => s.auth.token);
@@ -88,10 +96,19 @@ export default function PostDetail() {
   const submitComment = async () => {
     if (!commentBody.trim() || !slug) return;
     try {
-      await createComment({ slug, body: commentBody }).unwrap();
+      const created = await createComment({ slug, body: commentBody }).unwrap();
       setCommentBody('');
+      if (created?.moderation_status === 'approved') {
+        toast.success('Comment posted');
+      } else {
+        toast.success('Comment submitted', {
+          description: 'It’s awaiting moderation — only you can see it until the author approves it.',
+        });
+      }
     } catch (err) {
-      console.error('Failed to post comment:', err);
+      toast.error('Could not post comment', {
+        description: getApiErrorMessage(err, 'Please try again in a moment.'),
+      });
     }
   };
 
@@ -225,9 +242,9 @@ export default function PostDetail() {
                 }}
               >
                 <Avatar
-                  src={post.author.avatar || `https://i.pravatar.cc/150?u=${post.author.username}`}
-                  sx={{ width: 88, height: 88, border: '4px solid white', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
-                />
+                  src={post.author.avatar || undefined}
+                  sx={{ width: 88, height: 88, border: '4px solid white', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', fontSize: '2rem', fontWeight: 700 }}
+                >{(post.author.username || '?').charAt(0).toUpperCase()}</Avatar>
                 <Box>
                   <Typography sx={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', color: '#3AA8C1', mb: 0.5 }}>
                     Lead Contributor
@@ -452,11 +469,27 @@ export default function PostDetail() {
           <Stack spacing={2.5}>
             {(commentsData?.results || []).map((c: any) => (
               <Box key={c.id} sx={{ display: 'flex', gap: 2, p: 3, bgcolor: 'white', borderRadius: '16px', border: '1px solid rgba(42,52,57,0.05)' }}>
-                <Avatar src={c.author.avatar || `https://i.pravatar.cc/100?u=${c.author.username}`} sx={{ width: 40, height: 40 }} />
+                <Avatar src={c.author.avatar || undefined} sx={{ width: 40, height: 40, fontSize: '0.9rem', fontWeight: 700 }}>{(c.author.username || '?').charAt(0).toUpperCase()}</Avatar>
                 <Box sx={{ flex: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
                     <Typography sx={{ fontWeight: 700, fontSize: '0.85rem' }}>{c.author.username}</Typography>
                     <Typography sx={{ fontSize: '0.7rem', opacity: 0.35 }}>{formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}</Typography>
+                    {c.moderation_status && c.moderation_status !== 'approved' && (
+                      <Chip
+                        label={c.moderation_status === 'rejected' ? 'Rejected' : 'Pending review'}
+                        size="small"
+                        sx={{
+                          height: 18,
+                          fontSize: '0.58rem',
+                          fontWeight: 800,
+                          letterSpacing: '0.08em',
+                          textTransform: 'uppercase',
+                          bgcolor: c.moderation_status === 'rejected' ? 'rgba(244,63,94,0.1)' : 'rgba(245,158,11,0.14)',
+                          color: c.moderation_status === 'rejected' ? '#f43f5e' : '#b45309',
+                          '& .MuiChip-label': { px: 1 },
+                        }}
+                      />
+                    )}
                   </Box>
                   <Typography sx={{ fontSize: '0.9rem', opacity: 0.75, lineHeight: 1.6 }}>{c.body}</Typography>
                 </Box>

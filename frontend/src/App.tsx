@@ -1,10 +1,10 @@
 import { Provider, useSelector, useDispatch } from 'react-redux';
-import { createBrowserRouter, RouterProvider, Outlet, Link as RouterLink, NavLink, useNavigate, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Outlet, Link as RouterLink, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { store } from './store';
 import type { RootState } from './store';
 import { Box, Typography, Button, Stack, Avatar, Menu, MenuItem, IconButton } from '@mui/material';
 import { Toaster, toast } from 'sonner';
-import { logOut } from './store/authSlice';
+import { logOut, touchSession } from './store/authSlice';
 import LoginPage from './features/auth/LoginPage';
 import RegisterPage from './features/auth/RegisterPage';
 import ForgotPassword from './features/auth/ForgotPassword';
@@ -17,8 +17,7 @@ import Subscriptions from './pages/Subscriptions';
 import Library from './pages/Library';
 import EditProfile from './pages/EditProfile';
 import { User, LogOut } from 'lucide-react';
-import { useState } from 'react';
-import avatarDefault from './assets/Avatars/avatar.png';
+import { useState, useEffect } from 'react';
 
 const NavItem = ({ to, label }: { to: string; label: string }) => (
   <NavLink to={to} style={{ textDecoration: 'none' }}>
@@ -54,10 +53,54 @@ const NavItem = ({ to, label }: { to: string; label: string }) => (
 );
 
 const Layout = () => {
-  const { user } = useSelector((state: RootState) => state.auth);
+  const { user, sessionExpiry } = useSelector((state: RootState) => state.auth);
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+
+  // Reset scroll on every route change — otherwise React Router keeps the
+  // previous page's scroll offset, landing deep links (e.g. a post) mid-page.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+
+  // Idle timeout: auto-logout after 1 hour of inactivity. The deadline lives in
+  // sessionExpiry; the activity listener below slides it forward, so this timer
+  // is rescheduled on every activity and only fires once the user has truly
+  // gone idle for the full window.
+  useEffect(() => {
+    if (!user || !sessionExpiry) return;
+    const expire = () => {
+      dispatch(logOut());
+      toast('Session expired', { description: 'Signed out after 1 hour of inactivity — please sign in again.' });
+      navigate('/auth/login');
+    };
+    const remaining = sessionExpiry - Date.now();
+    if (remaining <= 0) {
+      expire();
+      return;
+    }
+    const timer = setTimeout(expire, remaining);
+    return () => clearTimeout(timer);
+  }, [user, sessionExpiry, dispatch, navigate]);
+
+  // Slide the idle window forward on user activity (throttled to once per 30s to
+  // avoid a dispatch on every mouse move). Active users therefore never expire.
+  useEffect(() => {
+    if (!user) return;
+    let last = 0;
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - last > 30_000) {
+        last = now;
+        dispatch(touchSession());
+      }
+    };
+    const events = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'] as const;
+    events.forEach((e) => window.addEventListener(e, onActivity, { passive: true }));
+    return () => events.forEach((e) => window.removeEventListener(e, onActivity));
+  }, [user, dispatch]);
 
   const handleOpenUserMenu = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -143,16 +186,17 @@ const Layout = () => {
                 </Box>
                 <IconButton onClick={handleOpenUserMenu} sx={{ p: 0 }}>
                   <Avatar
-                    src={user.avatar || avatarDefault}
+                    src={user.avatar || undefined}
                     sx={{
                       width: 44,
                       height: 44,
                       border: '2px solid white',
                       boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
                       transition: 'transform 0.2s',
+                      fontWeight: 700,
                       '&:hover': { transform: 'scale(1.05)' },
                     }}
-                  />
+                  >{(user.username || '?').charAt(0).toUpperCase()}</Avatar>
                 </IconButton>
               </Box>
               <Menu
@@ -251,7 +295,7 @@ const router = createBrowserRouter([
     children: [
       // Public
       { index: true, element: <HomeFeed /> },
-      { path: 'posts/:slug', element: <PostDetail /> },
+      { path: 'posts/:id', element: <PostDetail /> },
       // Authenticated only
       { path: 'library', element: <RequireAuth><Library /></RequireAuth> },
       { path: 'dashboard/:id', element: <RequireAuth><AuthorDashboard /></RequireAuth> },

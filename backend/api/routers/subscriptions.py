@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from ninja import Router
@@ -51,18 +53,18 @@ def subscribe(request, data: SubscriptionCreateIn):
     return (201 if created else 200), sub
 
 
-@router.patch("/{int:sub_id}", response=SubscriptionOut)
-def update_subscription(request, sub_id: int, data: SubscriptionUpdateIn):
+@router.patch("/{uuid:sub_id}", response=SubscriptionOut)
+def update_subscription(request, sub_id: uuid.UUID, data: SubscriptionUpdateIn):
     """Pause/resume or change delivery frequency of a subscription."""
-    sub = get_object_or_404(Subscription, id=sub_id, subscriber=request.auth)
+    sub = get_object_or_404(Subscription, uuid=sub_id, subscriber=request.auth)
     for field, value in data.dict(exclude_unset=True).items():
         setattr(sub, field, value)
     sub.save()
     return sub
 
 
-@router.delete("/{int:sub_id}", response={204: None})
-def unsubscribe(request, sub_id: int):
-    sub = get_object_or_404(Subscription, id=sub_id, subscriber=request.auth)
+@router.delete("/{uuid:sub_id}", response={204: None})
+def unsubscribe(request, sub_id: uuid.UUID):
+    sub = get_object_or_404(Subscription, uuid=sub_id, subscriber=request.auth)
     sub.delete()
     return 204, None

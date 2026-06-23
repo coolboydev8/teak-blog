@@ -75,6 +75,7 @@ export default function Subscriptions() {
 
   const authors = subs.map((s: any, i: number) => ({
     id: s.id,
+    uuid: s.uuid,
     initials: (s.author.username || '?').slice(0, 2).toUpperCase(),
     name: s.author.username,
     role: s.author.title || 'Author',
@@ -85,7 +86,7 @@ export default function Subscriptions() {
   }));
 
   const onSubAction = (a: any) =>
-    a.status === 'active' ? unsub(a.id) : updateSub({ id: a.id, is_active: true });
+    a.status === 'active' ? unsub(a.uuid) : updateSub({ id: a.uuid, is_active: true });
 
   const onNewEndpoint = () => {
     const url = window.prompt('Destination URL:', 'https://');
@@ -136,7 +137,7 @@ export default function Subscriptions() {
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={4} sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}>
               <Stack direction="row" spacing={4} sx={{ alignItems: 'center' }}>
                 <Box sx={{ position: 'relative' }}>
-                  <Avatar src={me?.avatar || `https://i.pravatar.cc/150?u=${me?.username || 'user'}`} sx={{ width: 112, height: 112, border: '4px solid white', boxShadow: '0 8px 30px rgba(0,0,0,0.04)' }} />
+                  <Avatar src={me?.avatar || undefined} sx={{ width: 112, height: 112, border: '4px solid white', boxShadow: '0 8px 30px rgba(0,0,0,0.04)', fontSize: '2.5rem', fontWeight: 700 }}>{(me?.username || '?').charAt(0).toUpperCase()}</Avatar>
                   <Box sx={{ position: 'absolute', bottom: 4, right: 4, width: 24, height: 24, bgcolor: '#10b981', border: '4px solid #F8F8FF', borderRadius: '50%' }} />
                 </Box>
                 <Box>
@@ -296,7 +297,7 @@ export default function Subscriptions() {
                       <TableCell><StatusChip status={status} /></TableCell>
                       <TableCell align="right">
                         <Box
-                          onClick={() => { if (window.confirm('Delete this webhook endpoint?')) deleteWebhook(w.id); }}
+                          onClick={() => { if (window.confirm('Delete this webhook endpoint?')) deleteWebhook(w.uuid); }}
                           sx={{ width: 36, height: 36, borderRadius: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(42,52,57,0.25)', '&:hover': { bgcolor: 'rgba(244,63,94,0.08)', color: '#f43f5e' } }}
                         >
                           <Trash2 size={16} />

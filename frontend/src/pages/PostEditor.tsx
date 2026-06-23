@@ -6,6 +6,7 @@ import {
   useUpdatePostMutation,
   useGetCategoriesQuery,
   usePublishPostMutation,
+  useUnpublishPostMutation,
   useGetMeQuery,
 } from '../store/apiSlice';
 import { getApiErrorMessage } from '../store/apiError';
@@ -74,6 +75,7 @@ export default function PostEditor() {
   const [createPost] = useCreatePostMutation();
   const [updatePost] = useUpdatePostMutation();
   const [publishPost] = usePublishPostMutation();
+  const [unpublishPost] = useUnpublishPostMutation();
   
   const [activeTab, setActiveTab] = useState(0);
   const [tagInput, setTagInput] = useState('');
@@ -143,10 +145,14 @@ export default function PostEditor() {
       if (status === 'published' && targetSlug) {
         await publishPost(targetSlug).unwrap();
         toast.success('Published', { description: 'Your post is live and subscribers have been notified.', icon: <CheckCircle2 size={18} color="#3AA8C1" /> });
+      } else if (targetSlug && existingPost && existingPost.status !== 'draft') {
+        // Reverting an already-public (or archived) post back to draft.
+        await unpublishPost(targetSlug).unwrap();
+        toast.success('Moved to draft', { description: 'This post is no longer public.' });
       } else {
         toast.success('Draft saved', { description: 'Your changes have been stored.' });
       }
-      navigate('/');
+      navigate('/library');
     } catch (err) {
       toast.error('Could not save post', { description: getApiErrorMessage(err, 'Please review your details and try again.') });
     }
@@ -291,7 +297,7 @@ export default function PostEditor() {
             <motion.div variants={animateItem}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, mb: 8, pb: 6, borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
                 <Box sx={{ position: 'relative' }}>
-                  <Avatar src={me?.avatar || `https://i.pravatar.cc/100?u=${me?.username || 'user'}`} sx={{ width: 48, height: 48, borderRadius: '16px', filter: 'grayscale(25%)' }} />
+                  <Avatar src={me?.avatar || undefined} sx={{ width: 48, height: 48, borderRadius: '16px', filter: 'grayscale(25%)', fontWeight: 700 }}>{(me?.username || '?').charAt(0).toUpperCase()}</Avatar>
                   <Box sx={{ position: 'absolute', bottom: -4, right: -4, width: 18, height: 16, bgcolor: 'white', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Box sx={{ width: 8, height: 8, bgcolor: '#10b981', borderRadius: '50%' }} />
                   </Box>

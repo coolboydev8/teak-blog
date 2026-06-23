@@ -1,3 +1,6 @@
+import logging
+import uuid
+
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Q
@@ -23,6 +26,18 @@ from ..schemas import (
 from ..serialization import paged_response
 
 router = Router(tags=["posts"])
+
+logger = logging.getLogger(__name__)
+
+
+def _bump_views(post_id, author_id) -> None:
+    """Best-effort async view increment. A broker outage must never fail a read,
+    so a failed enqueue is logged and swallowed (a dropped view bump is
+    acceptable degradation)."""
+    try:
+        increment_view_count.delay(post_id, author_id)
+    except Exception:
+        logger.warning("Failed to enqueue view-count bump for post %s", post_id, exc_info=True)
 
 
 def _owned_post(request, slug: str) -> Post:
@@ -92,15 +107,41 @@ def create_post(request, data: PostCreateIn):
 
 
 @router.get("/id/{post_id}", response=PostDetailOut, auth=None)
-def get_post_by_id(request, post_id: int):
-    """Post detail by primary key — used by the author dashboard's focused view.
+def get_post_by_id(request, post_id: uuid.UUID):
+    """Public post detail by uuid — the review page the SPA links to.
 
-    Mirrors get_post's visibility rules (the owning author may view their own
-    unpublished post) but skips read-side caching and the view-count bump, since
-    this backs an analytics surface rather than a reader page. Declared before
-    the ``/{slug}`` route so ``/id/<int>`` is never swallowed by the slug match.
+    Cache-aside for published posts plus an async view-count bump on **every**
+    read (including the author's own — viewing the live page is a view). The
+    author dashboard reads the separate ``/stats`` endpoint instead, so opening
+    analytics never inflates reads. Declared before ``/{slug}`` so ``/id/<uuid>``
+    is never swallowed by the slug match.
     """
-    post = get_object_or_404(Post.objects.with_related(), pk=post_id)
+    key = post_detail_key(f"id:{post_id}")
+    cached = cache.get(key)
+    if cached is not None:
+        _bump_views(cached["id"], cached["author"]["id"])
+        return cached
+
+    post = get_object_or_404(Post.objects.with_related(), uuid=post_id)
+    if post.status != Post.Status.PUBLISHED:
+        user = get_optional_user(request)
+        if user is None or post.author_id != user.id:
+            raise HttpError(404, "Post not found.")
+        return post  # owner preview: live, uncached, no view bump
+
+    result = PostDetailOut.from_orm(post).dict()
+    cache.set(key, result, settings.CACHE_TTL_POST_DETAIL)
+    _bump_views(post.id, post.author_id)
+    return result
+
+
+@router.get("/id/{post_id}/stats", response=PostDetailOut, auth=None)
+def get_post_stats(request, post_id: uuid.UUID):
+    """Post detail for the author dashboard: **fresh** (no cache) so the latest
+    view count shows immediately, and **no view bump** so opening the analytics
+    view doesn't count as a read. Owner may view their own unpublished post.
+    """
+    post = get_object_or_404(Post.objects.with_related(), uuid=post_id)
     if post.status != Post.Status.PUBLISHED:
         user = get_optional_user(request)
         if user is None or post.author_id != user.id:
@@ -114,7 +155,9 @@ def get_post(request, slug: str):
     key = post_detail_key(slug)
     cached = cache.get(key)
     if cached is not None:
-        increment_view_count.delay(cached["id"])
+        # author_id is already in the cached payload — pass it through so the
+        # async task can debounce milestones without a DB lookup.
+        _bump_views(cached["id"], cached.get("author", {}).get("id"))
         return cached
 
     post = get_object_or_404(Post.objects.with_related(), slug=slug)
@@ -128,7 +171,7 @@ def get_post(request, slug: str):
 
     result = PostDetailOut.from_orm(post).dict()
     cache.set(key, result, settings.CACHE_TTL_POST_DETAIL)
-    increment_view_count.delay(post.id)
+    _bump_views(post.id, post.author_id)
     return result
 
 
@@ -150,6 +193,14 @@ def publish_post(request, slug: str):
 def archive_post(request, slug: str):
     post = _owned_post(request, slug)
     services.archive_post(post=post)
+    return Post.objects.with_related().get(pk=post.pk)
+
+
+@router.post("/{slug}/unpublish", response=PostDetailOut)
+def unpublish_post(request, slug: str):
+    """Revert a post to draft (takes it off the public site)."""
+    post = _owned_post(request, slug)
+    services.unpublish_post(post=post)
     return Post.objects.with_related().get(pk=post.pk)
 
 

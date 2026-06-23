@@ -1,7 +1,7 @@
 """Tests for the frontend-integration endpoints (Phases 0-3)."""
 import pytest
 
-from blog.models import Category, Subscription, Tag, Webhook
+from blog.models import Comment, Post, Subscription, Tag, Webhook
 
 pytestmark = pytest.mark.django_db
 
@@ -24,9 +24,11 @@ def test_login_with_email_returns_user(api, make_user):
 
 # --- P1: taxonomy + editor save path ------------------------------------
 def test_categories_and_tags_are_public(api):
-    Category.objects.create(name="Engineering")
     Tag.objects.create(name="performance")
-    assert {c["slug"] for c in api.client.get("/api/categories").json()} == {"engineering"}
+    # "Engineering" et al. are seeded by migration 0004, so assert membership
+    # rather than exact equality (the endpoint exposes the controlled taxonomy).
+    cat_slugs = {c["slug"] for c in api.client.get("/api/categories").json()}
+    assert "engineering" in cat_slugs
     assert {t["slug"] for t in api.client.get("/api/tags").json()} == {"performance"}
 
 
@@ -66,12 +68,26 @@ def test_analytics_totals(api, author, reader):
     assert data["subscriber_count"] == 1
     assert 0.0 <= data["trust_score"] <= 10.0
     assert isinstance(data["audience_reach"], list)
+    # New data-derived dashboard fields (rank, trust breakdown, momentum).
+    assert isinstance(data["trust_breakdown"], dict) and data["trust_breakdown"]
+    assert isinstance(data["rank"], int) and data["rank"] >= 1
+    assert data["rank_total"] >= 1
+    assert 0 <= data["rank_percentile"] <= 100
+    assert isinstance(data["momentum_delta_pct"], (int, float))
 
 
 # --- P1: moderation queue ----------------------------------------------
 def test_moderation_queue_lists_with_post_ref(api, author, reader):
     slug = _publish(api.auth(author), "Discuss")
-    api.auth(reader).post(f"/api/posts/{slug}/comments", {"body": "Question?"})
+    # Comments auto-approve on creation at this stage, so insert a genuinely
+    # pending one directly to exercise the moderation queue (the pending/approved/
+    # rejected lifecycle is retained for a future moderation workflow).
+    Comment.objects.create(
+        post=Post.objects.get(slug=slug),
+        author=reader,
+        body="Question?",
+        moderation_status=Comment.Moderation.PENDING,
+    )
 
     queue = api.auth(author).get("/api/me/comments?status=pending").json()
     assert queue["count"] == 1
@@ -83,7 +99,7 @@ def test_moderation_queue_lists_with_post_ref(api, author, reader):
 
 # --- P2: subscription depth --------------------------------------------
 def test_subscription_pause_and_resume(api, author, reader):
-    sub_id = api.auth(reader).post("/api/subscriptions/", {"author_id": author.id}).json()["id"]
+    sub_id = api.auth(reader).post("/api/subscriptions/", {"author_id": author.id}).json()["uuid"]
     assert api.patch(f"/api/subscriptions/{sub_id}", {"is_active": False}).status_code == 200
     assert api.get("/api/me/subscriptions").json()[0]["is_active"] is False
 
@@ -94,7 +110,7 @@ def test_paused_subscription_skips_notifications(api, author, reader, make_user)
     from blog.models import Post
     from blog.tasks import notify_subscribers
 
-    sub_id = api.auth(reader).post("/api/subscriptions/", {"author_id": author.id}).json()["id"]
+    sub_id = api.auth(reader).post("/api/subscriptions/", {"author_id": author.id}).json()["uuid"]
     api.patch(f"/api/subscriptions/{sub_id}", {"is_active": False})
 
     post = Post.objects.create(
@@ -109,11 +125,11 @@ def test_webhook_crud(api, author):
     api.auth(author)
     created = api.post("/api/webhooks/", {"event": "post.published", "url": "https://h.test/x", "secret": "s"})
     assert created.status_code == 201
-    wid = created.json()["id"]
+    wid = created.json()["uuid"]
     assert created.json()["secret_set"] is True  # secret not echoed back
     assert created.json()["health"] == "awaiting"
 
-    assert api.get("/api/webhooks/").json()[0]["id"] == wid
+    assert api.get("/api/webhooks/").json()[0]["uuid"] == wid
     assert api.patch(f"/api/webhooks/{wid}", {"is_active": False}).json()["is_active"] is False
     assert api.delete(f"/api/webhooks/{wid}").status_code == 204
 
@@ -193,8 +209,14 @@ def test_public_list_sort_by_comments(api, author):
 
 def test_post_comment_count_counts_only_approved(api, author, reader):
     slug = _publish(api.auth(author), "Counted")
-    # reader's comment is pending; author's own comment is auto-approved.
-    api.auth(reader).post(f"/api/posts/{slug}/comments", {"body": "pending one"})
+    # One genuinely pending comment (inserted directly, since the API auto-approves)
+    # plus one approved comment — comment_count must count only the approved one.
+    Comment.objects.create(
+        post=Post.objects.get(slug=slug),
+        author=reader,
+        body="pending one",
+        moderation_status=Comment.Moderation.PENDING,
+    )
     api.auth(author).post(f"/api/posts/{slug}/comments", {"body": "approved one"})
 
     assert api.client.get(f"/api/posts/{slug}").json()["comment_count"] == 1

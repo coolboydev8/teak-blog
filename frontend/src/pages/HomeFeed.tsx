@@ -17,7 +17,7 @@ const NT_BORDER_LIGHT = 'rgba(42,52,57,0.04)';
 const TrendingItem = ({ post, index }: { post: LibraryPost; index: number }) => (
   <Box
     component={RouterLink}
-    to={`/posts/${post.slug}`}
+    to={`/posts/${post.uuid}`}
     sx={{
       display: 'flex',
       flexDirection: { xs: 'column', md: 'row' },
@@ -92,7 +92,7 @@ const TrendingItem = ({ post, index }: { post: LibraryPost; index: number }) => 
 const ActivityRow = ({ post }: { post: LibraryPost }) => (
   <Box
     component={RouterLink}
-    to={`/posts/${post.slug}`}
+    to={`/posts/${post.uuid}`}
     sx={{
       display: 'flex',
       alignItems: 'center',

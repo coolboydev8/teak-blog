@@ -23,20 +23,28 @@ class TokenError(Exception):
     pass
 
 
-def _encode(user_id: int, token_type: str, lifetime) -> str:
+def _encode(
+    user_id: int, token_type: str, lifetime, *, max_exp: datetime | None = None
+) -> str:
     now = datetime.now(timezone.utc)
+    exp = now + lifetime
+    # Never let a token outlive an explicit ceiling (the session deadline).
+    if max_exp is not None and max_exp < exp:
+        exp = max_exp
     payload = {
         "sub": str(user_id),
         "type": token_type,
         "iat": now,
-        "exp": now + lifetime,
+        "exp": exp,
         "jti": uuid.uuid4().hex,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_access_token(user) -> str:
-    return _encode(user.id, ACCESS, settings.JWT_ACCESS_TOKEN_LIFETIME)
+def create_access_token(user, *, not_after: datetime | None = None) -> str:
+    return _encode(
+        user.id, ACCESS, settings.JWT_ACCESS_TOKEN_LIFETIME, max_exp=not_after
+    )
 
 
 def create_refresh_token(user) -> str:
